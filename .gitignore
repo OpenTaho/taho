@@ -1,0 +1,7 @@
+.taho.main.json
+.terraform
+.terraform.lock.hcl
+.tmp
+.vscode
+/release
+terraform.tfstate

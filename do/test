@@ -1,0 +1,83 @@
+#!/bin/bash
+# shellcheck disable=SC2048
+# shellcheck disable=SC2086
+
+main() {
+  rm -f "$HOME/go/bin/taho"
+  go install .
+
+  if [ -d tests ]; then
+    cd tests || exit 1
+  fi
+
+  test "$1" 01 91268ce3a9f4edb082291f5283ecce8fdf6c71d0
+  test "$1" 02 44373f9b0b1095d02c744f1a9b9e7e7f8995bdb4
+  test "$1" 03 6422ff9a0533e512f26a33241ec8366266b307bb
+  test "$1" 04 02d0c4cf6ab4c474a4afcb7ec6a4161a454344ee
+  test "$1" 05 88c1a8f8f8f6a38562f0af0f97690c524e8dd533
+  test "$1" 06 f950c35aa2bc623d99a8d2b80efd56cfb15a3e1e
+  test "$1" 07 76d6aa2652bfadf456872703bc5c7603f2ca5f0c
+  test "$1" 08 05c1497b5d7215c5314c4f5eda03fffd34a6e999
+  test "$1" 09 b6b7f82bd00baed0b59e810b9ddc8efc2b63edbc
+  test "$1" 10 8b5203489ae8e87543bb7952b3472b6d63a0748a
+  test "$1" 11 d9cd93b88d28dd485ce4fa13ee284916975d1c91
+  test "$1" 12 5d56eb85084521957d5de1fd7ae0388b3b88fe30
+  test "$1" 13 e9a31804aaa1085f4a3009a190ec3d52625e16ca
+  test "$1" 14 841549b659dcf88a2b23acc4290dd5bd428d4d69
+  test "$1" 15 cb17054bdbe93537f6bd8f6e6c1e3ac9652aa108
+  test "$1" 16 264901f6cdfad95b631af0714bc475af1e36ba8e
+  test "$1" 17 119818411c5e1b8077b9d005941be6397b017c52
+  test "$1" 18 512b57005c76cbffb766612c732744bb76824f46
+  test "$1" 19 cac296a7f9d77205a55a9cd69684f531beddc8f9
+  test "$1" 20 41c57843b61db19da0fa50621fc3bf04fcf0d16f
+  test "$1" 21 b33ada06a8d6f587e3d8b4285c5ba0748a34be17
+  test "$1" 22 273947d6374dbfad0f41b4b7c34eba38a4475ed8
+  test "$1" 23 df14b803ecb197f5e01a93bca4abdd63f4b96d75
+  test "$1" 24 fd056106054e8500df9033e591577a5d1fb14435
+  test "$1" 25 fbd82fcd77be94cfe049e363e8336bdcf9b1044f
+  test "$1" 26 4d7f36994dcf014e402a00a91a710ba1416cc33d
+}
+
+get_sha1sum() {
+  (
+    [ ! -e ./main.tfvars ] || sha1sum ./*.tfvars
+    [ ! -e ./main.tf ] || sha1sum ./*.tf
+    [ ! -e ./README.md ] || sha1sum ./*.md
+    [ ! -e ./terragrunt.hcl ] || sha1sum ./*.hcl
+  ) |
+  sha1sum |
+  sed 's/ .*//'
+}
+
+test() {
+  expected="$3"
+  (
+    rm -rf "$2/result"
+    cp -r "$2" result
+    mv result "$2"
+    cd "$2/result" || exit 1
+
+    if [[ "$1" == 'setup' ]]; then
+      echo "Test $2: Setup Complete"
+    else
+      taho fmt 2>&1 | sed "s/^/Test $2: /"
+      echo ''
+
+      result1="$(get_sha1sum)"
+      if [[ "$expected" != "$result1" ]]; then
+        >&2 echo "Test $2 failed; got $result1"
+        exit 1
+      fi
+
+      result2="$(get_sha1sum)"
+      if [[ "$result1" != "$result2" ]]; then
+        >&2 echo "Test $1 failed because result1 != result2"
+        exit 1
+      fi
+    fi
+  ) || exit 1
+
+  rm -rf test
+}
+
+main $*
