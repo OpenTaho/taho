@@ -1,0 +1,1707 @@
+#!/bin/bash
+#
+# Taho Script
+#
+# Executes a Taho subcommand
+
+# shellcheck disable=SC2153
+# shellcheck disable=SC1003
+# shellcheck disable=SC1090
+# shellcheck disable=SC1091
+# shellcheck disable=SC2001
+# shellcheck disable=SC2013
+# shellcheck disable=SC2016
+# shellcheck disable=SC2030
+# shellcheck disable=SC2031
+# shellcheck disable=SC2059
+# shellcheck disable=SC2116
+# shellcheck disable=SC2126
+# shellcheck disable=SC2139
+
+# Setup colors
+c0='\033[0m'    # No color
+c1='\033[0;32m' # Green
+c2='\033[0;31m' # Red
+
+#######################################
+# Run the aws-runas subcommand
+# Arguments:
+#   TBD
+# Returns
+#   0 if successfully, non-zero on error.
+#######################################
+aws_runas() {
+  local aws_runas_profile="$1"; shift
+  AWS_RUNAS_TIME="${AWS_RUNAS_TIME:-1h}"
+
+  rm -rf ~/.aws/.aws_saml_* > /dev/null 2>&1
+  echo 'unset AWS_ACCESS_KEY_ID'
+  echo 'unset AWS_DEFAULT_REGION'
+  echo 'unset AWS_REGION'
+  echo 'unset AWS_SECRET_ACCESS_KEY'
+  echo 'unset AWS_SECURITY_TOKEN'
+  echo 'unset AWS_SESSION_TOKEN'
+  echo ". <(aws-runas -a '$AWS_RUNAS_TIME' $aws_runas_profile 2> /dev/null)"
+  echo 'aws_id="$(aws sts get-caller-identity)"'
+  echo 'export AWS_SIMPLE_ROLENAME="$(echo "$aws_id" | jq -r .Arn 2>&1 | sed "s/.*assumed-role\///" | sed "s/@.*//")"'
+  echo 'export AWS_ACCOUNT="$(echo "$aws_id" | jq -r .Account)"'
+  echo 'export AWS_ALIAS="$(aws iam list-account-aliases | jq -r '"'"'.AccountAliases[0]'"'"')"'
+}
+
+#######################################
+# Check for drift
+# Arguments:
+#   $@
+# Returns
+#   0 if successfully, non-zero on error.
+#######################################
+check() {
+  # Source AWS_AUTH if it exists
+  AWS_AUTH="$(git rev-parse --show-toplevel)/.tmp/.aws/$AWS_ALIAS"
+  if [ -e "$AWS_AUTH" ]; then
+    source "$AWS_AUTH"
+  fi
+
+  local enabled
+  enabled="$(
+    grep -E 'enabled *= ' terragrunt.hcl |
+    sed 's/.*= //' |
+    sed 's/ .*//'
+  )"
+
+  local skip=''
+  if [[ "$enabled" == 'false' ]]; then
+    if [[ "$1" == '-skip-disabled' ]]; then
+      skip='true'
+      drift='skip'
+    fi
+  fi
+
+  # If we do not skip the unit we force a clean init
+  if [[ "$skip" != 'true' ]]; then
+    tg_init
+
+    local backend_key expected_backend_key
+    backend_file="$(find . -name backend.tf)"
+    if [ -z "$backend_file" ]; then
+      TAHO_BACKEND_MISSING='true'
+    else
+      backend_key="$(cat "$backend_file" | grep -E ' *key *= "' | sed 's/ *key *= "//' | sed 's/"//')"
+      expected_backend_key="$(pwd | sed "s/^$(git rev-parse --show-toplevel | sed 's/\//\\\//g')\///")"
+
+      unset TAHO_BACKEND_KEY_MISMATCH
+      if [[ "$backend_key" != "$expected_backend_key" ]]; then
+        TAHO_BACKEND_KEY_MISMATCH='true'
+      fi
+    fi
+
+    # Resource count bytes divided by 1024
+    s_k="$(( $(terragrunt show -json 2> /dev/null | wc -c) / 1024 ))"
+
+    # If the plan has a result we consider it to be a case of drift.
+    # Any error in this context is also considered to be drift.
+    if \
+      terragrunt plan -detailed-exitcode -lock=false \
+      >> .terragrunt-cache/output 2>&1
+    then
+      drift='false'
+    else
+      drift='true'
+    fi
+  fi
+}
+
+#######################################
+# Clean the repository
+# Arguments:
+#   $1 - optional for '-unlock'
+# Returns
+#   0 if successfully, non-zero on error.
+#######################################
+clean() {
+  (
+    cd "$(git rev-parse --show-toplevel)" || exit 1
+    rm -rf .tmp/.aws
+    find . -name .terraform -type d -exec rm -rf {} \; &> /dev/null
+    find . -name .terragrunt-cache -type d -exec rm -rf {} \; &> /dev/null
+    if [[ "$1" == '-unlock' ]]; then
+      shift
+      find . -name .terraform.lock.hcl -type f -delete &> /dev/null
+    fi
+  )
+}
+
+#######################################
+# Recursively clone a repo
+# Arguments:
+#   $1 - git url
+#   $2 - repos dir
+# Returns
+#   0 if successfully, non-zero on error.
+#######################################
+clone_repos() {
+  local source="$1"; shift
+  local repos_dir="$1"; shift
+  local name
+  name="$(
+    echo "$source" |
+    sed 's/\/\/.*//' |
+    sed 's/\?.*//' |
+    sed 's/.*\///'
+  )"
+  (
+    if [ ! -d "$repos_dir/$name/.git" ]; then
+      mkdir -p "$repos_dir/$name"
+      git clone "$source" "$repos_dir/$name"
+    fi
+
+    cd "$repos_dir/$name" || exit 1
+
+    local action_source
+    if [ -e ./.github/workflows ]; then
+      local workflow
+      find .github/workflows -name \*.yml |
+      while read -r workflow; do
+        for action_source in $(
+          grep -E '^ * uses: [a-z].*' "$workflow" |
+          grep -E '@v[0-9]+\.[0-9]+\.[0-9]+' |
+          sed 's/@.*//' |
+          sed 's/.* uses: /git@github.com:/'
+          sort -u
+        ); do
+          ( clone_repos "$action_source" "$repos_dir" ) || true
+        done
+      done
+    fi
+
+    if [ -e main.tf ]; then
+      for submodule_source in $(
+        cat ./main.tf |
+        grep -F '?ref=' |
+        sed 's/^ * source * = *"//' |
+        sed 's/".*//' |
+        sed 's/\?.*//' |
+        sed 's/\/\/.*//' |
+        sort -u
+      ); do
+        clone_repos "$submodule_source" "$repos_dir"
+      done
+    fi
+  ) > /dev/null 2>&1
+}
+
+#######################################
+# Echo Reverse
+# Arguments:
+#   $1 - String with lines to reverse.
+# Returns
+#   0 if successfully, non-zero on error.
+#######################################
+echo_reverse() {
+  local line result nl
+  nl=$'\n'
+  for line in $(echo "$1"); do
+    result="${line}${nl}${result}"
+  done
+  echo "$result"
+}
+
+#######################################
+# Garbage Collector
+# Arguments:
+#   None
+# Returns
+#   0 if successfully, non-zero on error.
+#######################################
+gc() {
+  rm -rf "$HOME/taho/tmp"
+  if git rev-parse --show-toplevel > /dev/null 2>&1; then
+    rm -rf "$(git rev-parse --show-toplevel)/.tmp"
+  fi
+}
+
+#######################################
+# Get Context
+# Arguments:
+#   TBD
+# Returns
+#   0 if successfully, non-zero on error.
+#######################################
+get_context() {
+  export TF_LOG=''
+
+  local
+  start_time="$(now)"
+
+  local c0='\e[0m'
+  local c1='\e[31m'
+  local c2='\e[32m'
+  local c3='\e[35m'
+  local c4='\e[36m'
+  local c5='\e[34m'
+  local c6='\e[93m'
+  local c7='\e[103m\e[41m'
+
+  local ctx
+  ctx="\n${c2}--- ${c0}${c3}$(
+    uname |
+    tr '[:lower:]' '[:upper:]' |
+    sed 's/DARWIN/MacOS/'
+  )${c0} ${c4}($(date "+%m/%d %H:%M"))${c0}\n"
+
+  local aws_ctx
+  if [ -z "$AWS_ACCESS_KEY_ID" ]; then
+    aws_ctx="${c1}NO-AWS${c0}"
+  else
+    # Directory for tracking AWS Auth age
+    aws_auth_dir="${HOME}/taho/tmp/$HOSTNAME"
+    mkdir -p "$aws_auth_dir"
+
+    # File for tracking AWS Auth age
+    local aws_auth
+    aws_auth="$aws_auth_dir/aws-$AWS_ACCESS_KEY_ID"
+
+    if [ ! -e "$aws_auth" ]; then
+      # Auth file did not exist so in our context we consider it to be super
+      # old.
+      aws_auth_age='999999'
+    else
+      # Since the auth file exists we can determine it's age now
+      if [[ "$(uname)" == 'Darwin' ]]; then
+        aws_auth_age="$(gdate -r "$aws_auth" +%s%3N)"
+      else
+        aws_auth_age="$(date -r "$aws_auth" +%s%3N)"
+      fi
+      aws_auth_age="$((start_time - aws_auth_age))"
+    fi
+
+    # If the age of the auth file is great then five minutes we will check to
+    # it using sts to get information and ensure that the auth is still valid.
+    if [ "$aws_auth_age" -ge 300000 ]; then
+
+      local assumed_role
+      if assumed_role="$(
+          set -o pipefail
+          aws sts get-caller-identity |
+          jq -r .Arn 2>&1 |
+          sed "s/.*assumed-role\///" |
+          sed "s/@.*//"
+        )"
+      then
+        aws_ctx="${c7} ${assumed_role} ${c0} ${c4}$AWS_ALIAS${c0}"
+      else
+        aws_ctx="${c5}ERROR${c0}"
+      fi
+
+      # Save the auth context so we can re-use it in the future to make the
+      # context appear faster.
+      {
+        echo "$aws_ctx"
+      } > "$aws_auth"
+    fi
+
+    # Our context uses the auth value from the auth file because much of the
+    # time this means we are using a cached value and that is much faster vs.
+    # calling aws sts get-caller-identity each time.
+    aws_ctx="$(head -n 1 < "$aws_auth")"
+  fi
+
+  local git_ctx
+
+  git_ctx="$(
+    set -o pipefail
+    git remote get-url origin 2>&1 |
+    sed 's/.*\///' |
+    sed 's/\.git$//'
+  )" || git_ctx=''
+
+  if [[ "$git_ctx" != '' ]]; then
+    if [ -d .git ]; then
+      # clear git_ctx if we are in the git root and the directory name
+      # matches the git ctx.
+      if [[ "$git_ctx" == "$(pwd | sed 's/.*\///')" ]]; then
+        git_ctx=''
+      fi
+    fi
+
+    if [ -n "$git_ctx" ]; then
+      git_ctx="${c1}${git_ctx}${c0} "
+    fi
+
+    git_main="$(
+      git branch -a --merged 2>&1 |
+      grep 'remotes/origin' |
+      grep -v 'HEAD ->' |
+      sed 's/^ *remotes\/origin\///' |
+      grep -E '^(main|master)' |
+      head -1
+    )"
+    git_main="${git_main:-unsure}"
+
+    git_ctx+="${c5}${git_main}${c0}"
+    git_ctx+=" ${c3}$(git describe --always)${c0}"
+
+    git_status_ctx="$(
+      git status -s 2>&1 |
+      wc -l |
+      sed 's/ *//'
+    )"
+
+    if [[ "$git_status_ctx" != '0' ]]; then
+      git_ctx+=" ${c6}(${git_status_ctx} uncommitted)${c0}"
+    fi
+  else
+    git_ctx=''
+  fi
+
+  if [[ "$AWS_ACCESS_KEY_ID" != '' ]]; then
+    ctx+="${c2}AWS${c0} $aws_ctx\n"
+  fi
+
+  if [ -n "$git_ctx" ]; then
+    ctx+="${c2}GIT${c0} $git_ctx\n"
+  fi
+
+  echo "$ctx"
+}
+
+#######################################
+# Install Terraform
+#
+# This installs terraform using the binary for linux amd64.
+#
+# Arguments:
+#   $1 - version (optional)
+#   $2 - install to location (optional)
+# Returns
+#   0 if successfully, non-zero on error.
+#######################################
+install_terraform() {
+  local version="${1:-1.14.3}"; shift || true
+  local install_to="${1:-/usr/local/bin}"; shift || true
+
+  # Remove a leading "v" if it was supplied
+  version="$(echo "$version" | sed 's/^v//')"
+  current_version="$(terraform version -json 2>&1 | jq -r '.terraform_version' 2>&1)"
+
+  if [[ "$current_version" != "$version" ]]; then
+    if tfenv --version > /dev/null 2>&1; then
+      tfenv use "$version" > /dev/null 2>&1
+    else
+      local tmp
+      tmp="$(git rev-parse --show-toplevel).tmp/install-terraform"
+      rm -rf "$tmp"
+      mkdir -p "$tmp"
+      (
+        cd "$tmp" || exit 1
+        if [[ "$(uname)" == 'Darwin' ]]; then
+          curl -s -L -o terraform.zip "https://releases.hashicorp.com/terraform/$version/terraform_${version}_darwin_$(arch).zip"
+          unzip terraform.zip
+          sudo mv terraform "$install_to"
+        else
+          curl -s -L -o terraform.zip "https://releases.hashicorp.com/terraform/$version/terraform_${version}_linux_amd64.zip"
+          unzip terraform.zip
+          mv terraform "$install_to"
+        fi
+      ) > /dev/null 2>&1 || exit 1
+      rm -rf "$tmp"
+    fi
+  fi
+}
+
+#######################################
+# Install Terragrunt
+#
+# This installs terragrunt using the binary for linux amd64.
+#
+# Arguments:
+#   $1 - version (optional)
+#   $2 - hash (optional; required if version is not the default value)
+#   $3 - install to location (optional)
+# Returns
+#   0 if successfully, non-zero on error.
+#######################################
+install_terragrunt() {
+  local version="${1:-0.98.0}"; shift || true
+  local install_to="${1:-/usr/local/bin}"; shift || true
+
+  # Remove a leading "v" if it was supplied
+  version="$(echo "$version" | sed 's/^v//')"
+
+  local tmp='.tmp/install-terragrunt'
+  mkdir -p "$tmp"
+  (
+    cd "$tmp" || exit 1
+    curl -s -L -o terragrunt "https://github.com/gruntwork-io/terragrunt/releases/download/v$version/terragrunt_linux_amd64"
+    chmod +x terragrunt
+    mv terragrunt "$install_to"
+  ) || exit 1
+  rm -rf "$tmp"
+}
+
+#######################################
+# Run lint
+# Arguments:
+#   None
+# Returns
+#   0 if successfully, non-zero on error.
+#######################################
+lint() {
+  find . -name \*.md -exec mdl {} \;
+  for name in yaml yml; do
+    find . -name "*.$name" -exec yamlfmt {} \;
+    find . -name "*.$name" -exec yamllint {} \;
+  done
+}
+
+#######################################
+# Output the time
+# Arguments:
+#   None
+# Returns
+#   0 if successfully, non-zero on error.
+#######################################
+now() {
+  local date='date'
+  if [[ "$(uname)" == 'Darwin' ]]; then
+    date='gdate'
+  fi
+  $date +%s%3N
+}
+
+#######################################
+# Print a table header
+# Arguments:
+#   $1 - the option for "-fail-fast"
+# Returns
+#   0 if successfully, non-zero on error.
+#######################################
+print_header() {
+  printf '%s\n' "$TABLE_SIMPLE_LINE"
+
+  local header
+  header="$(git rev-parse --show-toplevel)"
+
+  printf '|%-138s|\n' "$header"
+  printf '%s\n' "$TABLE_LINE"
+  printf '|%-7s|%-9s|%-3s|%-3s|%-100s|%5s|%5s|\n' N. TERRAFORM DFT EN 'UNIT/MODULE' 'S (k)' TIME
+  printf '%s\n' "$TABLE_LINE"
+}
+
+#######################################
+# Process a unit directory
+# Arguments:
+#   TBD
+# Returns
+#   0 if successfully, non-zero on error.
+#######################################
+process_unit() {
+  local cmd cmd1 drift enabled n unit
+  n="$1"; shift
+  count="$1"; shift
+  cmd="$1"; shift
+  unit="$1"; shift
+  repos_dir="$1"; shift
+  SECONDS=0
+
+  export TAHO_UNIT
+  TAHO_UNIT="$unit"
+
+  if [ -z "$unit" ]; then
+    return
+  fi
+
+  (
+    if ! cd "$(git rev-parse --show-toplevel)/$unit"; then
+      echo -e "\n * ${c2}Could not change directory to '$unit'${c0}\n" >&2
+      exit 1
+    fi
+
+    local source
+    source="$(
+      grep -F 'source =' terragrunt.hcl |
+      sed 's/.*= "//' |
+      sed 's/"//'
+    )"
+
+    local module_dir module_source
+
+    if [[ "$source" =~ .*\/\/.* ]]; then
+      module_dir="$(
+        echo "$source" |
+        sed 's/.*\/\///' |
+        sed 's/\?ref=.*//'
+      )"
+    fi
+
+    module_source="$(
+      echo "$source" |
+      sed 's/\/\/.*//' |
+      sed 's/\?ref=.*//'
+    )"
+
+    # remove git@github.com:
+    source="$(
+      echo "$source" |
+      sed 's/git@github\.com://'
+    )"
+
+    local module
+    module="$(
+      echo "$source" |
+      sed 's/.*\///' |
+      sed 's/\.git\?/?/'
+    )"
+
+    local module_simple_name
+    module_simple_name="$(
+      echo "$module" |
+      sed 's/\/\/.*//' |
+      sed 's/\?.*//'
+    )"
+
+    source="$(
+      echo "$source" |
+      sed 's/.*\/\///' |
+      sed 's/\?ref=.*//'
+    )"
+
+    local ref
+    ref="$(
+      echo "$module" |
+      sed 's/.*\?ref=//' |
+      sed 's/".*$//g'
+    )"
+
+    local unit_dir
+    unit_dir="$(
+      cd "$(git rev-parse --show-toplevel)" || exit 1
+      cd ..
+      pwd
+    )/$(
+      git remote get-url origin |
+      sed 's/.*\///' |
+      sed 's/\.git$//'
+    )-units/$TAHO_UNIT"
+    rm -rf "$unit_dir"
+
+    local git_branch
+    git_branch="$(git branch --show-current)"
+
+    if ! err="$(
+      (
+        git clone "$module_source" "$unit_dir"
+        cd "$unit_dir" || exit 1
+        git checkout -b "$git_branch" "$ref"
+      ) 2>&1 || exit 1
+    )"; then
+      echo "$err"
+      exit 1
+    fi
+
+    if [ -n "$module_dir" ]; then
+      unit_dir+="/$module_dir"
+    fi
+
+    local tf_version
+    tf_version="$(
+      cat "$unit_dir/terraform.tf" |
+      grep '^ *required_version *= *' |
+      sed 's/.* = "//' |
+      sed 's/"//' |
+      sed 's/[^0-9]*//'
+    )"
+
+    install_terraform "$tf_version"
+    tf_version_actual="$(
+      terraform version -json |
+      jq -r .terraform_version
+    )"
+
+    if [[ "$tf_version" != "$tf_version_actual" ]]; then
+      echo "TERRAFORM VERSION MISMATCH"
+      exit 1
+    fi
+
+    # Source .tg-info.sh after we get our working directory
+    export TG_WD
+    TG_WD="$(pwd)"
+    source "$(git rev-parse --show-toplevel)/.tg-info.sh"
+
+    # Process cmd (level 1)
+    cmd1="$cmd"
+    local s_k
+    case "$cmd1" in
+      apply)
+        tfg_run 'apply' "$unit" "$@"
+        ;;
+      check)
+        check "$@"
+        ;;
+      copy-locks)
+        cp "$unit_dir/.terraform.lock.hcl" . ||
+        true
+        ;;
+      destroy)
+        tfg_destroy "$@"
+        ;;
+      disable)
+        tg_unit_enabled "$unit" false
+        cmd="$1"; shift
+        if [[ "$cmd" == 'apply' ]]; then
+          cmd1=''
+          tfg_run 'apply' "$unit" "$@"
+        fi
+        ;;
+      enable)
+        tg_unit_enabled "$unit" true
+        cmd="$1"; shift
+        if [[ "$cmd" == 'apply' ]]; then
+          cmd1=''
+          tfg_run 'apply' "$unit" "$@"
+        fi
+        ;;
+      init)
+        if [ -z "$unit" ]; then
+          tf_init "$@"
+          tfg_pro_lock
+        else
+          tg_init
+        fi
+        ;;
+    esac
+
+    # Process cmd (level 2)
+    case "$cmd1" in
+      check|disable|enable|ls|init)
+        tfg_line \
+        "$n" \
+        "$count" \
+        "$drift" \
+        "$unit" \
+        "$unit_dir" \
+        "$module" \
+        "$module_dir" \
+        "$module_simple_name" \
+        "$ref" \
+        "$tf_version" \
+        "$s_k" \
+        "$cmd1" \
+        "$@"
+        ;;
+    esac
+
+  ) || exit 1
+}
+
+#######################################
+# Runs the save-aws-auth subcommand
+# Arguments:
+#   none
+# Returns
+#   0 if successfully, non-zero on error.
+#######################################
+save_aws_auth() {
+  local aws_alias
+  aws_alias="$(aws iam list-account-aliases | jq -r '.AccountAliases[0]')"
+  mkdir -p "$(git rev-parse --show-toplevel)/.tmp/.aws"
+  (
+    echo '#!/bin/bash'
+    env |
+    grep -E 'AWS_(ACCESS_KEY_ID|SECRET_ACCESS_KEY|SESSION_TOKEN|SECURITY_TOKEN)' |
+    sed 's/^/export /'
+    echo "export AWS_ALIAS='$aws_alias'"
+  ) > "$(git rev-parse --show-toplevel)/.tmp/.aws/$aws_alias"
+}
+
+#######################################
+# Run the tf-lint subcommand
+# Arguments:
+#   $1 - the option for "-fail-fast"
+# Returns
+#   0 if successfully, non-zero on error.
+#######################################
+tf_lint() {
+  local p1="$1"; shift || true
+
+  cd "$(git rev-parse --show-toplevel)" || exit 1
+
+  local line='|-------|---------|----------------------------------------------------------------------------------------------------|---|---|---|---|-------|\n'
+  printf "$line"
+  printf '|%-7s|%-9s|%-100s|%-3s|%-3s|%-3s|%-3s|%7s|\n' 'N.' TERRAFORM MODULE INI VAL FMT LIN SECONDS
+  printf "$line"
+
+  local check_disabled_init='init errors are expected'
+  local check_disabled_lint='lint errors are expected'
+  local check_disabled_validate='validation errors are expected'
+  local check_disabled_format='formatting errors are expected'
+
+  local error_log
+  error_log="$(pwd)/.tmp/tf-lint-$(date +%s)"
+
+  local modules=''
+
+  modules="$(
+    find . -name main.tf |
+    sed 's/\/main.tf//' |
+    grep -v -E '\.(tmp|terraform|terragrunt-cache)/' |
+    sort
+  )"
+
+  export TAHO_MODULE_COUNT
+  TAHO_MODULE_COUNT="$(echo "$modules" | wc -l)"
+
+  local n=0
+
+  echo "$modules" |
+  while read -r module; do
+    n="$(( n + 1))"
+    (
+      cd "$module" || exit 1
+
+      SECONDS=0
+
+      local note=''
+      local soft_note=''
+
+      rm -rf .terraform .terraform.lock.hcl
+      mkdir -p .terraform
+
+
+      if [ ! -e README.md ]; then
+        note+=", ${c2}README.md not found${c0}"
+      fi
+
+      if [ ! -e main.tf ]; then
+        note+=", ${c2}main.tf not found${c0}"
+      fi
+
+      local tf_version
+      if [ ! -e terraform.tf ]; then
+        note+=", ${c2}terraform.tf not found${c0}"
+      else
+        tf_version="$(
+          cat "terraform.tf" |
+          grep '^ *required_version *= *' |
+          sed 's/.* = "//' |
+          sed 's/"//' |
+          sed 's/[^0-9]*//'
+        )"
+        install_terraform "$tf_version" || true
+      fi
+
+      if ! grep "$check_disabled_init" README.md > /dev/null 2>&1; then
+        if ! terraform init >> .terraform/output 2>&1; then
+          status_init=no
+          note+=", ${c2}terraform init failed${c0}"
+        else
+          tfg_pro_lock > /dev/null 2>&1
+        fi
+      else
+        status_init='n/a'
+        soft_note+=", ${c1}terraform init disabled${c0}"
+      fi
+
+      if ! grep "$check_disabled_lint" README.md > /dev/null 2>&1; then
+        if ! tflint >> .terraform/output 2>&1; then
+          status_lint=no
+          note+=", ${c2}tflint failed${c0}"
+        fi
+      else
+        status_lint='n/a'
+        soft_note+=", ${c1}tflint disabled${c0}"
+      fi
+
+      if ! grep "$check_disabled_validate" README.md > /dev/null 2>&1; then
+        if ! terraform validate >> .terraform/output 2>&1; then
+          status_validate=no
+          note+=", ${c2}terraform validate failed${c0}"
+        fi
+      else
+        status_validate='n/a'
+        soft_note+=", ${c1}terraform validate disabled${c0}"
+      fi
+
+      if ! grep "$check_disabled_format" README.md > /dev/null 2>&1; then
+        if ! terraform fmt -check >> .terraform/output 2>&1; then
+          status_format=no
+          note+=", ${c2}terraform fmt failed${c0}"
+        fi
+      else
+        status_format='n/a'
+        soft_note+=", ${c1}terraform fmt disabled${c0}"
+      fi
+
+      note="$(
+        echo "$note" |
+        sed 's/^, //'
+      )"
+
+      soft_note="$(
+        echo "$soft_note" |
+        sed 's/^, //'
+      )"
+
+      if [ -n "$note" ]; then
+        printf "\nFAILURE IN %s\n\n" "$module" >> "$error_log"
+        cat .terraform/output >> "$error_log"
+        if [[ "$p1" == '-fail-fast' ]]; then
+          exit 1
+        fi
+      fi
+
+      # Special case for a root module
+      if [[ "$module" == '.' ]]; then
+        module="$(pwd | sed 's/.*\//..\//')"
+      fi
+
+      printf "|%7s|%9s|%-100s|${c2}%-3s${c0}|${c2}%-3s${c0}|${c2}%-3s${c0}|${c2}%-3s${c0}|%7s| ${soft_note}${note}\n" \
+      "$n/$TAHO_MODULE_COUNT" \
+      "$tf_version" \
+      "$module" \
+      "$status_init" \
+      "$status_validate" \
+      "$status_format" \
+      "$status_lint" \
+      "$SECONDS"
+    ) || true
+  done
+  printf "$line"
+
+  if [ -e "$error_log" ]; then
+    cat "$error_log"
+    rm "$error_log"
+    exit 1
+  fi
+
+}
+
+#######################################
+# Run the tf-lint-fix subcommand
+# Arguments:
+#   None
+# Returns
+#   0 if successfully, non-zero on error.
+#######################################
+tf_lint_fix() {
+  # If running within docker, we change directory to the workspace.
+  cd "$(git rev-parse --show-toplevel)" || exit 1
+
+  find . -name main.tf |
+  sed 's/\/main.tf//' |
+  while read -r module; do
+    (
+      cd "$module" || exit 1
+      echo -e "\n * ${c1}tf lint fix: ${c2}$module${c0}\n" >&2
+      tflint --fix
+    )
+  done
+}
+
+#######################################
+# Terraform or Terragrunt Destroy
+# Arguments:
+#   $@ - Subcommands (i.e. -upgrade, or -auto-approve)
+# Returns
+#   0 if successfully, non-zero on error.
+#######################################
+tfg_destroy() {
+  echo -e "\n * tfg ${c1}destroy:${c2} $unit${c0}\n" >&2
+  if [ -e terragrunt.hcl ]; then
+    tg_unit_enabled "$unit" false
+    terragrunt destroy "$@"
+  else
+    terraform destroy "$@"
+  fi
+}
+
+#######################################
+# Terraform or Terragrunt provider lock
+# Arguments:
+#   $@ - Subcommands (i.e. -upgrade, or -auto-approve)
+# Returns
+#   0 if successfully, non-zero on error.
+#######################################
+tfg_pro_lock() {
+  local x=''
+  if [ -e terragrunt.hcl ]; then
+    x+=' terragrunt run -- providers lock'
+  else
+    x+=' terraform providers lock'
+  fi
+  x+=' -platform=darwin_arm64'
+  x+=' -platform=linux_amd64'
+  x+=' -platform=linux_arm64'
+  x+=' -platform=windows_amd64'
+  eval "$x"
+}
+
+#######################################
+# Terraform or Terragrunt run
+# Arguments:
+#   $@ - Subcommands (i.e. -upgrade, or -auto-approve)
+# Returns
+#   0 if successfully, non-zero on error.
+#######################################
+tfg_run() {
+  local cmd
+  cmd="$1"; shift
+  local unit="$1"; shift
+
+  echo -e "\n * tfg ${c1}$cmd:${c2} $unit${c0}\n" >&2
+
+  if [ -e terragrunt.hcl ]; then
+    ( terragrunt "$cmd" "$@" ) 2>&1 | tee -a .terragrunt-cache/output
+  else
+    ( terraform "$cmd" "$@" ) 2>&1 | tee -a .terraform/output
+  fi
+}
+
+#######################################
+# Show the unit state
+# Arguments:
+#   $1 - number
+#   $2 - count
+#   $3 - drift
+#   $4 - unit
+#   $5 - resource count
+#   $6 - subcommand
+# Returns
+#   0 if successfully, non-zero on error.
+#######################################
+tfg_line() {
+  local n="$1"; shift
+  local count="$1"; shift
+  local drift="$1"; shift
+  local unit="$1"; shift
+  local unit_dir="$1"; shift
+  local module="$1"; shift
+  local module_dir="$1"; shift
+  local module_simple_name="$1"; shift
+  local ref="$1"; shift
+  local tf_version="$1"; shift
+  local s_k="$1"; shift
+  local cmd="$1"; shift
+
+  local count_color="${c0}"
+  local drift_color="${c0}"
+  local enabled_color="${c1}"
+  local module_color="${c1}"
+  local tf_color="${c1}"
+  local note=''
+  local s_k_color="${c1}"
+  local time_color="${c1}"
+
+  local enabled
+
+  if [ -e terragrunt.hcl ]; then
+    enabled="$(
+      grep -E 'enabled *= ' terragrunt.hcl |
+      sed 's/.*= //' |
+      sed 's/ .*//'
+    )"
+  fi
+
+  if [[ "$enabled" == 'false' ]]; then
+    enabled='no'
+    enabled_color="${c0}"
+    module_color="${c0}"
+    s_k_color="${c0}"
+    time_color="${c0}"
+  else
+    enabled='yes'
+  fi
+
+  if [[ "$cmd" == 'ls' ]]; then
+
+    if [[ "$1" == '-init' ]]; then
+      shift
+      if [ -e terragrunt.hcl ]; then
+        mkdir -p .terragrunt-cache
+        tg_init
+      else
+        mkdir -p .terraform
+        terraform init "$@" > .terraform/output 2>&1
+      fi
+    fi
+
+  elif [[ "$cmd" == 'check' ]]; then
+
+    # Validate the unit
+    mkdir -p .terragrunt-cache
+
+    if ! terragrunt hcl validate --inputs --strict >> .terragrunt-cache/output 2>&1; then
+      note+=" terragrunt-is-not-strict"
+    fi
+
+    if [ -n "$TAHO_BACKEND_MISSING" ]; then
+      note+=" backend-tf-missing"
+    elif [ -n "$TAHO_BACKEND_KEY_MISMATCH" ]; then
+      note+=" backend-key-mismatch"
+    fi
+
+  fi
+
+  if [[ "$drift" == 'true' ]]; then
+    local show
+
+    # Determine state
+    if ! show="$(terragrunt show -json 2>&1)"; then
+      show='terragrunt-show-error'
+    fi
+
+    # A version only block is actually really empty
+    if [[ "$show" == '{"format_version":"1.0"}' ]]; then
+      show=''
+    fi
+
+    # (empty or really empty) means this is a new state.
+    if [ -z "$show" ]; then
+      drift='new'
+    else
+      drift='yes'
+    fi
+
+    drift_color="${c2}"
+    enabled_color="${c2}"
+    module_color="${c2}"
+    s_k_color="${c2}"
+    time_color="${c2}"
+  elif [[ "$drift" == 'skip' ]]; then
+    drift='n/a'
+  elif [[ "$drift" == 'false' ]]; then
+    drift=''
+  fi
+
+  module="$(
+    echo "$module" |
+    sed 's/\?ref=.*//' |
+    sed 's/ *//' |
+    sed 's/^root\///' |
+    sed 's/[^ a-z0-9]*$//g'
+  )"
+
+  time="$SECONDS"
+
+  local spec=''
+  spec="|${count_color}%7s${c0}|"
+  spec+="${tf_color}%9s${c0}|"
+  spec+="${drift_color}%-3s${c0}|"
+  spec+="${enabled_color}%-3s${c0}|"
+  spec+="${module_color}%s%s%s${c0}|"
+  spec+="${s_k_color}%5s${c0}|"
+  spec+="${time_color}%5s${c0}|"
+  spec+="%s\n"
+
+  local regx
+  if [ -n "$TAHO_UNIT_WORKSPACE_DIR" ]; then
+    regx="$(echo "$TAHO_UNIT_WORKSPACE_DIR" | sed -r 's/\//\\\//g')"
+    unit="$(echo "$unit" | sed -r "s/$regx\\///")"
+  fi
+  unit_pad="$(printf "%-$(( 100 - ${#unit} ))s" ' ')"
+
+  printf "$spec" \
+  "$n/$count" \
+  "$tf_version" \
+  "$drift" \
+  "$enabled" \
+  '' \
+  "$unit" \
+  "$unit_pad" \
+  "$s_k" \
+  "$time" \
+  "$note"
+
+  # Check for version tag
+  ref="$(
+    cd "$unit_dir" || exit 1
+    git tag --points-at=HEAD |
+    grep -E '^v[0-9]+\.[0-9]+\.[0-9]'
+  )"
+
+  # Use describe --always and update if the version could not be found
+  if [ -z "$ref" ]; then
+    ref="$(
+      cd "$unit_dir" || exit 1
+      git describe --always
+    )"
+
+  fi
+
+  # Resolve the ref
+  local resolved_ref
+  resolved_ref="$(
+    echo "$ref" |
+    grep -E '^v[0-9]+\.[0-9]+\.[0-9]' |
+    head -n 1
+  )"
+
+  if [ -n "$resolved_ref" ]; then
+    sed -i -E "s/$module\?ref=.*\"/$module?ref=$resolved_ref\"/" terragrunt.hcl
+  fi
+
+  # Clone the module
+  clone_repos "$module_source" "$repos_dir"
+
+  module_pad="$(printf "%-$(( 100 - ${#module} - ${#ref} - 1 ))s" ' ')"
+  printf "$spec" \
+  '' \
+  '' \
+  '' \
+  '' \
+  '' \
+  "$module@$ref" \
+  "$module_pad" \
+  '' \
+  '' \
+  '' \
+  '' |
+  head -n 1
+
+  local tmp="$HOME/.tmp/taho/inspect"
+  rm -rf "$tmp"
+  mkdir -p "$tmp"
+
+  local submodule
+  for submodule in $(
+    cd "$tmp" 2> /dev/null || exit
+    git clone --depth 1 "git@github.com:$TH_ORG/$module" > /dev/null 2>&1
+    cd "$module" 2> /dev/null || exit
+    git fetch origin "$ref" > /dev/null 2>&1
+    git reset --hard "$ref" > /dev/null 2>&1
+    cat main.tf |
+    grep -E '\?ref=v[0-9]*\.' |
+    sed 's/"$//' |
+    sed 's/.*\///' |
+    sed 's/\?ref=/@/' |
+    sort -u
+  ); do
+    local submodule_pad
+    submodule_pad="$(printf "%-$(( 100 - ${#submodule} - 2 ))s" ' ')"
+    printf "$spec" \
+    '' \
+    '' \
+    '' \
+    '' \
+    '' \
+    "  $submodule" \
+    "$submodule_pad" \
+    '' \
+    '' \
+    '' \
+    '' |
+    head -n 1
+  done
+
+  rm -rf "$tmp"
+
+  printf '%s\n' "$TABLE_LINE"
+}
+
+#######################################
+# Initalize a terragrunt unit directory
+# Arguments:
+#   $@
+# Returns
+#   0 if successfully, non-zero on error.
+#######################################
+tg_init() {
+  rm -rf .terragrunt-cache
+  mkdir -p .terragrunt-cache
+  (
+    SECONDS=0
+    terragrunt init > .terragrunt-cache/output 2>&1
+    echo "** INIT TOOK: $SECONDS seconds" >> .terragrunt-cache/output
+
+    SECONDS=0
+    tfg_pro_lock >> .terragrunt-cache/output 2>&1
+    echo "** PROVIDER LOCKING TOOK: $SECONDS seconds" >> .terragrunt-cache/output
+  ) || exit 1
+}
+
+#######################################
+# List unused units
+# Arguments:
+#   $1 Unit path
+#   $2 Value (true or false)
+# Returns
+#   0 if successfully, non-zero on error.
+#######################################
+tg_ls_unused() {
+  find . -name terragrunt.hcl |
+  sort |
+  sed 's/\/terragrunt\.hcl$//' |
+  grep -v -E '\.terragrunt-cache' |
+  while read -r unit; do
+    if [ ! -e "$unit/.terragrunt-cache" ]; then
+      echo "$unit"
+    fi
+  done
+}
+
+#######################################
+# Set the unit enable state
+# Arguments:
+#   $1 Unit path
+#   $2 Value (true or false)
+# Returns
+#   0 if successfully, non-zero on error.
+#######################################
+tg_unit_enabled() {
+  local unit="$1"; shift
+  local enabled="$1"; shift
+
+  local sed_cfg
+  sed_cfg="s/ *enabled * = [a-z]*/ enabled = $enabled/g"
+
+  sed -i -r "$sed_cfg" terragrunt.hcl;
+  taho fmt > /dev/null
+}
+
+#######################################
+# Main function
+# Arguments:
+#   $@ Subcommand (i.e. check, destroy, disable, or enable)
+# Returns
+#   0 if successfully, non-zero on error.
+#######################################
+main() {
+  # Parse the subcommand
+  local cmd
+  cmd="${1:-shell}"; shift
+  if [[ "$cmd" == 'install' ]]; then
+
+    # Install to a given location if requested
+    if (
+      local install_to="${1:-/usr/local/bin}"
+      rm -rf "$install_to/taho"
+      ln -s "$PWD/script" "$install_to/taho"
+      if which go > /dev/null; then
+        go install
+      else
+        echo 'GoLang not found; some features will be unavailable'
+      fi
+    ); then
+      echo 'Installed taho'
+    else
+      echo 'Installed failed' >&2
+    fi
+    exit
+  fi
+
+  # Our shared taho home
+  mkdir -p "$HOME/taho"
+
+  if [ -z "$TAHO_HOME" ]; then
+    # shellcheck disable=SC2012
+    TAHO_HOME="$(
+      ls -lap "$(which taho)" |
+      sed 's/.*> //' |
+      sed 's/\/script$//'
+    )"
+  fi
+  export TAHO_HOME
+
+  # Process subcommand (top level)
+  local e environment filter n
+  e='echo'
+  case "$cmd" in
+    -v|--version)
+      (
+        cd "$TAHO_HOME" || exit 1
+        git describe
+      )
+      exit
+      ;;
+    apply|check|enable|init)
+      e='echo'
+      ;;
+    aws-runas)
+      aws_runas "$@"
+      ;;
+    clean)
+      clean "$@"
+      exit
+      ;;
+    copy-locks)
+      e='echo'
+      ;;
+    destroy|disable)
+      e='echo_reverse'
+      ;;
+    fmt)
+      taho-go "$@"
+      exit
+      ;;
+    gc)
+      gc "$@"
+      exit
+      ;;
+    get-context)
+      get_context "$@"
+      exit
+      ;;
+    install-tf|install-terraform)
+      install_terraform "$@"
+      exit
+      ;;
+    install-tg|install-terragrunt)
+      install_terragrunt "$@"
+      exit
+      ;;
+    ls)
+      e='echo'
+      if [[ "$1" == '-unused' ]]; then
+        tg_ls_unused "$@"
+        exit 0
+      fi
+      ;;
+    pwd)
+      pwd |
+      sed "s/$(git rev-parse --show-toplevel |
+      sed 's/\//\\\//g')\///"
+      exit 0
+      ;;
+    pud)
+      echo "$(
+        cd "$(git rev-parse --show-toplevel)" || exit 1
+        cd ..
+        pwd
+      )/$(
+        git remote get-url origin |
+        sed 's/.*\///' |
+        sed 's/\.git$//'
+      )-units/$(
+        taho pwd
+      )"
+      exit 0
+      ;;
+    tf-lint)
+      clean
+      tf_lint "$@"
+      exit
+      ;;
+    tf-lint-fix)
+      tf_lint_fix "$@"
+      exit
+      ;;
+    tfg-lock)
+      tfg_pro_lock "$@"
+      exit
+      ;;
+    lint)
+      clean
+      lint "$@"
+      ;;
+    save-aws-auth)
+      save_aws_auth "$@"
+      exit
+      ;;
+    shell)
+      shell "$@"
+      exit
+      ;;
+    start)
+      start "$@"
+      exit 0
+      ;;
+    url)
+      git remote get-url origin |
+      sed 's/git@github\.com:/https:\/\/github.com\//' |
+      sed 's/\.git$//'
+      exit 0
+      ;;
+    *)
+      shell "$cmd"
+      exit 1
+      ;;
+  esac
+
+  # Get the enviornment code (i.e. poc, pro, dev, stg, pre, or prd)
+  environment="$1"; shift
+  if [ -z "$environment" ]; then
+    TG_ENV_FILTER='.*'
+  fi
+
+  export TG_ENVIRONMENT="$environment"
+  echo -e "\n${c1} * $cmd:${c2} $environment${c0}\n" >&2
+  taho_init="$(git rev-parse --show-toplevel)/.tg-info.sh"
+  if [ -e "$taho_init" ]; then
+    source "$taho_init"
+
+    # We may need to source again if the environment was redefined.
+    if [[ "$TG_ENVIRONMENT" != "$environment" ]]; then
+      source "$taho_init"
+      environment="$TG_ENVIRONMENT"
+    fi
+  fi
+
+  # If running within docker, we change to the workspace directory.
+  cd "$(git rev-parse --show-toplevel)" || exit 1
+
+  if [[ "$1" == '-filter' ]]; then
+    shift
+    filter="$1"
+    shift
+  else
+    filter='.*'
+  fi
+
+  export TABLE_SIMPLE_LINE='|------------------------------------------------------------------------------------------------------------------------------------------|'
+  export TABLE_LINE='|-------|---------|---|---|----------------------------------------------------------------------------------------------------|-----|-----|'
+
+  # Show header
+  case "$cmd" in
+    check|disable|enable|ls|init)
+      print_header
+      ;;
+  esac
+
+  local env_filter
+  # The infrastructure may or may not be under $AWS_ALIAS
+  if [ -z "$TAHO_NO_ALIAS_ROOT" ]; then
+    env_filter="/$environment/"
+  else
+    env_filter="${TG_ENV_FILTER_PREFIX}$environment/"
+  fi
+
+  # Reads the list of units from the table in UNITS.md.
+  local regx="^\|\`.*/"
+  if [ -e UNITS.md ]; then
+    TAHO_UNITS="$(
+      cat "$(git rev-parse --show-toplevel)/UNITS.md" |
+      grep -E "$regx" |
+      sed 's/^|`//' |
+      sed 's/`.*//'
+    )"
+  fi
+
+  TAHO_UNITS="$(
+    echo "$TAHO_UNITS" |
+    grep -E "$filter"
+  )"
+
+  if [ -n "$TG_ENV_FILTER" ]; then
+    TAHO_UNITS="$(
+      echo "$TAHO_UNITS" |
+      grep -E "$TG_ENV_FILTER"
+    )"
+  else
+    TAHO_UNITS="$(
+      echo "$TAHO_UNITS" |
+      grep -F "$env_filter"
+    )"
+  fi
+
+  local repos_dir
+  repos_dir="$(
+    cd "$(git rev-parse --show-toplevel)" || exit 1
+    cd ..
+    pwd
+  )/$(
+    git remote get-url origin |
+    sed 's/.*\///' |
+    sed 's/\.git$//'
+  )-repos"
+
+  # Start counter at zero
+  n=0
+  count="$(
+    echo "$TAHO_UNITS" |
+    wc -l
+  )"
+
+  # Process the units
+  "$e" "$TAHO_UNITS" |
+  while read -r unit; do
+    n=$(( n + 1 ))
+    process_unit "$n" "$count" "$cmd" "$unit" "$repos_dir" "$@"
+  done
+
+  # A final line for readability
+  echo
+}
+
+#######################################
+# Run the Shell subcommand
+# Arguments:
+#   TBD
+# Returns
+#   0 if successfully, non-zero on error.
+#######################################
+shell() {
+  local taho_id
+  taho_id="$(uuidgen)"
+
+  # Make sure that .tmp exists.
+  mkdir -p "$(git rev-parse --show-toplevel)/.tmp"
+
+  # If this appears to be the first running for the first time we set TAHO_VERBOSE.
+  if [ ! -e "$HOME/taho/.gitconfig" ]; then
+    TAHO_VERBOSE=true
+  fi
+
+  # Use linux/amd64
+  export DOCKER_DEFAULT_PLATFORM='linux/amd64'
+
+  # Capture the current working directory
+  local working_dir="$PWD"
+
+  # Change directory to toplevel
+  cd "$(git rev-parse --show-toplevel)" || exit 1
+
+  # Build
+  if [[ "$1" == '-V' ]]; then
+    export TAHO_VERBOSE=true
+    shift
+  fi
+
+  (
+    cd "$TAHO_HOME" || exit 1
+    mkdir -p .tmp
+
+    # Force verbose if this was not previously built.
+    local build_log
+    build_log=".tmp/built-$(
+      git describe
+    )-$(
+      md5sum < Dockerfile |
+      sed 's/ .*//'
+    )-$(
+      md5sum < script |
+      sed 's/ .*//'
+    )"
+    if [ ! -e "$build_log" ]; then
+      export TAHO_VERBOSE=true
+    fi
+
+    db="(docker build . -t taho) 2>&1"
+    if [ -z "$TAHO_VERBOSE" ]; then
+      eval "$db" > "$build_log" 2>&1
+    else
+      set -o pipefail
+      eval "$db" | tee "$build_log"
+    fi
+  ) || exit 1
+
+  (
+    echo $'#!/bin/bash\n'
+    echo "cd '$working_dir'"
+    echo 'export PATH="$HOME/.tfenv/bin:$PATH"'
+    echo 'export PATH="$HOME/.tgenv/bin:$PATH"'
+    echo 'export PATH="$HOME/go/bin:$PATH"'
+    echo 'history -c'
+    echo 'cat /root/.history >> /root/.history-x'
+    if [ -z "$1" ]; then
+      echo "zsh -c 'source /root/.zshrc; zsh'; cat /root/.history-x >> /root/.history"
+    else
+      echo "zsh -c 'source /root/.zshrc; $*'"
+    fi
+  ) > ".tmp/start-$taho_id" || exit 1
+  chmod +x ".tmp/start-$taho_id"
+
+  # Ensure that required file system resources exist.
+  existing_or "$HOME/.cache/pre-commit"         'mkdir -p'
+  existing_or "$HOME/.terraform.d/plugin-cache" 'mkdir -p'
+  existing_or "$HOME/.terraformrc"              'touch'
+  existing_or "$PWD/.tmp/history"               'touch'
+
+  # Create a docker subcommand
+  local d
+  d='time docker run --rm -it'
+  d+=' -e TAHO_DOCKER=true'
+  d+=" -h '$(basename "$PWD")'"
+  d+=" -v '/Users:/Users'"
+  d+=" -v '$HOME/.ssh:/root/.ssh'"
+  d+=" -v '$PWD:/workspace'"
+  d+=" -v '$PWD/.tmp/history:/root/.history:rw'"
+
+  # Add volume mounts to the docker subcommand
+  for x in \
+    '.cache/pre-commit' \
+    '.ssh/known_hosts'
+  do
+    d+=" -v '$HOME/$x:/root/$x'"
+  done
+
+  sed -r 's/\tgpgsign = true/\tgpgsign = false/' \
+    < "$HOME/.gitconfig" > "$HOME/taho/.gitconfig"
+
+  mkdir -p "$HOME/taho"
+  d+=" -v '$HOME/taho/.gitconfig:/root/.gitconfig'"
+
+  # Add rw volume mounts to the docker subcommand
+  for x in \
+    '.terraform.d/plugin-cache' \
+    '.terraformrc' \
+    '.aws'
+  do
+    d+=" -v '$HOME/$x:/root/$x:rw'"
+  done
+
+  # Add environment variables to the docker subcommand
+  for v in $(
+    env |
+    grep -E '^(AWS_)' |
+    sed 's/=.*//' \
+  ); do
+    d+=" -e $v"
+  done
+
+  # Evaluate the docker subcommand
+  eval "$d taho '$(git rev-parse --show-toplevel)/.tmp/start-$taho_id'"
+  rm "./.tmp/start-$taho_id"
+}
+
+# Define a function for exist or evaluate
+existing_or() {
+  [ -e "$1" ] || eval "$2 $1"
+}
+
+#######################################
+# Run the start subcommand
+# Arguments:
+#   TBD
+# Returns
+#   0 if successfully, non-zero on error.
+#######################################
+start() {
+  (
+    cd "$(git rev-parse --show-toplevel)" || exit 1
+    for profile in $(grep -F '[profile ' < "$HOME/.aws/config" |
+      sed 's/.* //' |
+      sed 's/\]//'
+    ); do
+      echo "alias \"taho-aws-$profile\"=\". <(taho aws-runas $profile)\""
+    done
+
+    echo "alias taho-git-dpush='git push origin \":\$(git branch --show-current)\"; git push -u origin HEAD'"
+    echo "alias taho-cd='cd "'"$(git rev-parse --show-toplevel)"'"'"
+
+    echo   "taho-git-commit() {"
+    echo   "  local issue"
+    echo   "  issue=\"\$(git branch --show-current | sed 's/@.*//' | sed \"s/-$(whoami)//\")\""
+    printf "  git commit -m\"\${TAHO_COMMIT_TYPE:-feat}: \$("
+    printf "    echo \"\$1\" |"
+    printf "    sed 's/.*\///' |"
+    printf "    sed 's/\?ref=/@/'"
+    printf "  )\\n\\n\$2\" --trailer \"\${TAHO_GIT_COMMIT_TRAILER_KEY:-Issue}: \$issue\" &&"
+    printf "  git commit --amend\n"
+    echo   "}"
+
+    if [[ "$(uname)" == 'Darwin' ]]; then
+      echo   "taho_precmd() {"
+      echo   "  echo -e -n \"\$(taho get-context)\""
+      echo   "}"
+      echo   "add-zsh-hook precmd taho_precmd"
+    fi
+
+    if [ -e .tg-info.sh ]; then
+      source .tg-info.sh
+    fi
+
+    echo "$TAHO_ALIASES"
+  )
+}
+
+main "$@"

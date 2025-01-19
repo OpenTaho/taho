@@ -1,0 +1,15 @@
+#!/bin/bash
+# shellcheck disable=SC2005
+
+for file in 'main.go' 'taho.go' 'proxy.go';
+do
+  if ! grep '^func ' < "$file" | sort -c; then
+    >&2 echo "ERROR: Functions are not in sorted order."
+    >&2 echo "**********"
+    >&2 echo "$(grep '^func ' < "$file" 2>&1 | sort | nl 2>&1 | sed -e 's/^/EXPECTED - /')"
+    >&2 echo "**********"
+    >&2 echo "$(grep '^func ' < "$file" 2>&1 | nl 2>&1   | sed -e 's/^/ACTUAL --- /')"
+    >&2 echo "**********"
+    exit 1
+  fi
+done
