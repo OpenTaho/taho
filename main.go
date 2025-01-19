@@ -17,12 +17,13 @@ type context struct {
 	exit      int
 	main      []*hclwrite.Block
 	outputs   []*hclwrite.Block
+	providers []*hclwrite.Block
 	terraform []*hclwrite.Block
 	variables []*hclwrite.Block
 }
 
 func main() {
-	handleOptions("0.0.1")
+	handleOptions("0.0.2")
 
 	ctx := context{exit: 0}
 
@@ -34,6 +35,7 @@ func main() {
 	specialNames := map[string]bool{
 		"main.tf":      true,
 		"outputs.tf":   true,
+		"providers.tf": true,
 		"terraform.tf": true,
 		"variables.tf": true,
 	}
@@ -59,6 +61,8 @@ func main() {
 				for _, block := range file.Body().Blocks() {
 					if block.Type() == "terraform" {
 						ctx.terraform = append(ctx.terraform, block)
+					} else if block.Type() == "provider" {
+						ctx.providers = append(ctx.providers, block)
 					} else if block.Type() == "variable" {
 						ctx.variables = append(ctx.variables, block)
 					} else if block.Type() == "output" {
@@ -119,6 +123,19 @@ func main() {
 	writeTfFile(&ctx, "outputs.tf", ctx.outputs)
 	writeTfFile(&ctx, "terraform.tf", ctx.terraform)
 	writeTfFile(&ctx, "variables.tf", ctx.variables)
+
+	if len(ctx.providers) > 0 {
+		writeTfFile(&ctx, "providers.tf", ctx.providers)
+	} else {
+		_, errS := os.Stat("providers.tf")
+		if errS == nil {
+			errR := os.Remove("providers.tf")
+			if errR != nil {
+				panic(errR)
+			}
+		}
+	}
+
 	os.Exit(ctx.exit)
 }
 

@@ -7,8 +7,9 @@ main() {
     cd tests || exit 1
   fi
 
-  test 0 56ea0dd6fd2c5ae6de624d1b475f2f03e3b10d64
-  test 1 0a2b77cb3c270bb936ae44338fe41b8dcd7af6ae
+  test 0 ccbd5579bcea24b33686b5f428a2102a3997a755
+  test 1 9eda6f42550d672327451ba4caa23bc4da378a4a
+  test 2 224899fbe5aad177d4cc40f31ed50e56e6d78dc7
 }
 
 test() {

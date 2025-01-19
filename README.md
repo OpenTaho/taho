@@ -29,7 +29,8 @@ such that the code is structured as follows.
 2. `variables.tf` exists with only variable type blocks
 3. `outputs.tf` exits with only output type blocks
 4. `terraform.tf` exits with only terraform type blocks
-5. Blocks are in sorted order
+5. `providers.tf` exits with only terraform type blocks
+6. Blocks are in sorted order
 
 ## Install with Go
 
@@ -49,7 +50,7 @@ A binary can be installed for MacOS.
 mkdir -p "$HOME/bin"
 
 curl -s -L -o "$HOME/bin/taho" \
-  https://github.com/OpenTaho/taho/releases/download/v0.0.1/taho-0.0.1-darwin-$(arch)"
+  https://github.com/OpenTaho/taho/releases/download/v0.0.2/taho-0.0.2-darwin-$(arch)"
 
 chmod +x "$HOME/bin/taho"
 ```
@@ -62,7 +63,7 @@ A binary can be installed for Linux.
 mkdir -p "$HOME/bin"
 
 curl -s -L -o "$HOME/bin/taho" \
-  https://github.com/OpenTaho/taho/releases/download/v0.0.1/taho-0.0.1-linux-amd64"
+  https://github.com/OpenTaho/taho/releases/download/v0.0.2/taho-0.0.2-linux-amd64"
 
 chmod +x "$HOME/bin/taho"
 ```

@@ -1,7 +1,5 @@
 # Test Simple Main Tranformation
 
-While it is legal to have a Terraform project with all content in `main.tf` (or
-really in any file) we consider such a structure to be ugly.
-
-The `taho` tool will transform this module to one where the proper files exist
-with the correct content in each file.
+While it is legal to have a Terraform project with all content in random files
+such a structure to be difficult to maintain. In this example, the program will
+convert the project into to the proper structure.
