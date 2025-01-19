@@ -1,0 +1,39 @@
+#!/bin/bash
+
+main() {
+  go install .
+
+  if [ -d tests ]; then
+    cd tests || exit 1
+  fi
+
+  test 0 56ea0dd6fd2c5ae6de624d1b475f2f03e3b10d64
+  test 1 0a2b77cb3c270bb936ae44338fe41b8dcd7af6ae
+}
+
+test() {
+  expected="$2"
+  (
+    rm -rf "result-$1"
+    cp -r "$1" "result-$1"
+    cd "result-$1" || exit 1
+
+    result="$(
+      (
+        taho 2>&1;
+        sha1sum ./*.tf
+        sha1sum ./*.md
+      ) |
+      sha1sum |
+      sed 's/ .*//'
+    )"
+    if [[ "$expected" != "$result" ]]; then
+      >&2 echo "Test $1 failed; got $result"
+      exit 1
+    fi
+  ) || exit 1
+
+  rm -rf test
+}
+
+main
