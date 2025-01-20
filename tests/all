@@ -7,9 +7,10 @@ main() {
     cd tests || exit 1
   fi
 
-  test 0 ccbd5579bcea24b33686b5f428a2102a3997a755
-  test 1 9eda6f42550d672327451ba4caa23bc4da378a4a
-  test 2 224899fbe5aad177d4cc40f31ed50e56e6d78dc7
+  test 0 3ca25d984982495dbdcaecacdeabfc59ce5342d2
+  test 1 91268ce3a9f4edb082291f5283ecce8fdf6c71d0
+  test 2 1dcdb1857a30a88a1a4114e37afab481a4d39948
+  test 3 18e2e3ccd0132ebce7c8c21921808695b9af040b
 }
 
 test() {
@@ -19,17 +20,33 @@ test() {
     cp -r "$1" "result-$1"
     cd "result-$1" || exit 1
 
-    result="$(
+    taho > /dev/null 2>&1;
+
+    result1="$(
       (
-        taho 2>&1;
         sha1sum ./*.tf
         sha1sum ./*.md
       ) |
       sha1sum |
       sed 's/ .*//'
     )"
-    if [[ "$expected" != "$result" ]]; then
-      >&2 echo "Test $1 failed; got $result"
+
+    if [[ "$expected" != "$result1" ]]; then
+      >&2 echo "Test $1 failed; got $result1"
+      exit 1
+    fi
+
+    result2="$(
+      (
+        sha1sum ./*.tf
+        sha1sum ./*.md
+      ) |
+      sha1sum |
+      sed 's/ .*//'
+    )"
+
+    if [[ "$result1" != "$result2" ]]; then
+      >&2 echo "Test $1 failed because result1 != result2"
       exit 1
     fi
   ) || exit 1

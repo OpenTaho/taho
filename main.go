@@ -23,10 +23,24 @@ type context struct {
 }
 
 func main() {
-	handleOptions("0.0.3")
+	handleOptions("0.0.4")
 
 	ctx := context{exit: 0}
 
+	run(ctx)
+	if ctx.exit == 1 {
+		run(ctx)
+		if ctx.exit == 0 {
+			ctx.exit = 1
+		} else {
+			ctx.exit = 2
+		}
+	}
+
+	os.Exit(ctx.exit)
+}
+
+func run(ctx context) {
 	entries, err := os.ReadDir("./")
 	if err != nil {
 		panic(err)
@@ -135,8 +149,6 @@ func main() {
 			}
 		}
 	}
-
-	os.Exit(ctx.exit)
 }
 
 func sortBlocks(blocks []*hclwrite.Block) {
