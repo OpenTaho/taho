@@ -50,7 +50,7 @@ A binary can be installed for MacOS.
 mkdir -p "$HOME/bin"
 
 curl -s -L -o "$HOME/bin/taho" \
-  https://github.com/OpenTaho/taho/releases/download/v0.0.2/taho-0.0.2-darwin-$(arch)"
+  https://github.com/OpenTaho/taho/releases/download/v0.0.3/taho-0.0.3-darwin-$(arch)"
 
 chmod +x "$HOME/bin/taho"
 ```
@@ -63,7 +63,7 @@ A binary can be installed for Linux.
 mkdir -p "$HOME/bin"
 
 curl -s -L -o "$HOME/bin/taho" \
-  https://github.com/OpenTaho/taho/releases/download/v0.0.2/taho-0.0.2-linux-amd64"
+  https://github.com/OpenTaho/taho/releases/download/v0.0.3/taho-0.0.3-linux-amd64"
 
 chmod +x "$HOME/bin/taho"
 ```

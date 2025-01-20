@@ -23,7 +23,7 @@ type context struct {
 }
 
 func main() {
-	handleOptions("0.0.2")
+	handleOptions("0.0.3")
 
 	ctx := context{exit: 0}
 
@@ -148,13 +148,13 @@ func sortBlocks(blocks []*hclwrite.Block) {
 
 		aLabel0 := ""
 		aLabels := a.Labels()
-		if len(aLabels) >= 0 {
+		if len(aLabels) > 0 {
 			aLabel0 = aLabels[0]
 		}
 
 		bLabels := b.Labels()
 		bLabel0 := ""
-		if len(bLabels) >= 0 {
+		if len(bLabels) > 0 {
 			bLabel0 = bLabels[0]
 		}
 		label0Order := cmp.Compare(aLabel0, bLabel0)
@@ -164,11 +164,11 @@ func sortBlocks(blocks []*hclwrite.Block) {
 
 		aLabel1 := ""
 		bLabel1 := ""
-		if len(aLabels) >= 1 {
+		if len(aLabels) > 1 {
 			aLabel1 = aLabels[1]
 		}
 
-		if len(bLabels) >= 1 {
+		if len(bLabels) > 1 {
 			bLabel1 = bLabels[1]
 		}
 		return cmp.Compare(aLabel1, bLabel1)
