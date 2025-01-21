@@ -1,9 +1,14 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"cmp"
+	"errors"
 	"fmt"
+	"io/fs"
+	"maps"
+	"math/rand"
 	"os"
 	"slices"
 	"strings"
@@ -18,18 +23,20 @@ type context struct {
 	main      []*hclwrite.Block
 	outputs   []*hclwrite.Block
 	providers []*hclwrite.Block
+	run       int
+	tempDir   string
 	terraform []*hclwrite.Block
 	variables []*hclwrite.Block
+	version   string
 }
 
 func main() {
-	handleOptions("0.0.5")
-
-	ctx1 := context{exit: 0}
+	ctx1 := context{version: "0.0.6"}
+	handleOptions(ctx1.version)
 
 	run(&ctx1)
 	if ctx1.exit == 1 {
-		ctx2 := context{exit: 0}
+		ctx2 := context{run: 1}
 		run(&ctx2)
 		if ctx2.exit != 0 {
 			ctx1.exit = 2
@@ -43,6 +50,22 @@ func run(ctx *context) {
 	entries, err := os.ReadDir("./")
 	if err != nil {
 		panic(err)
+	}
+
+	for {
+		ctx.tempDir = fmt.Sprintf(".terraform/taho/%d-%d", ctx.run, rand.Int())
+		_, err := os.Stat(ctx.tempDir)
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				errM := os.MkdirAll(ctx.tempDir, 0777)
+				if errM != nil {
+					panic(errM)
+				}
+			} else {
+				panic(err)
+			}
+			break
+		}
 	}
 
 	specialNames := map[string]bool{
@@ -91,7 +114,7 @@ func run(ctx *context) {
 
 				newFile := hclwrite.NewFile()
 
-				sortBlocks(blocks)
+				blocks = rewriteBlocks(ctx, "run", blocks)
 
 				len := len(blocks)
 				for i, block := range blocks {
@@ -105,7 +128,9 @@ func run(ctx *context) {
 
 				if !specialName {
 					if !bytes.Equal(fileBytes, newBytes) {
-						os.Stderr.WriteString(fmt.Sprintf("Main file state mismatch for \"%s\"\n", filename))
+						os.Stderr.WriteString(
+							fmt.Sprintf(
+								"Main file state mismatch for \"%s\"\n", filename))
 						ctx.exit = 1
 					}
 					if len == 0 {
@@ -148,9 +173,16 @@ func run(ctx *context) {
 			}
 		}
 	}
+
+	errR := os.RemoveAll(ctx.tempDir)
+	if errR != nil {
+		panic(errR)
+	}
 }
 
-func sortBlocks(blocks []*hclwrite.Block) {
+func rewriteBlocks(ctx *context, stage string,
+	blocks []*hclwrite.Block) []*hclwrite.Block {
+
 	blockCmp := func(a *hclwrite.Block, b *hclwrite.Block) int {
 		typeOrder := cmp.Compare(a.Type(), b.Type())
 		if typeOrder != 0 {
@@ -186,6 +218,171 @@ func sortBlocks(blocks []*hclwrite.Block) {
 	}
 
 	slices.SortFunc(blocks, blockCmp)
+
+	newBlocks := make([]*hclwrite.Block, 0)
+	for b := range blocks {
+		block := blocks[b]
+		newBlocks = rewriteBlock(ctx, stage, newBlocks, block)
+	}
+
+	return newBlocks
+}
+
+func rewriteBlock(
+	ctx *context, stage string, newBlocks []*hclwrite.Block,
+	block *hclwrite.Block) []*hclwrite.Block {
+
+	tempBlocks := make([]*hclwrite.Block, 0)
+	tempBlocks = append(tempBlocks, block)
+
+	bodyBlocks := block.Body().Blocks()
+	lenBodyBlocks := len(bodyBlocks)
+	for b := range bodyBlocks {
+		newBlock := hclwrite.NewBlock(block.Type(), block.Labels())
+		movedBlock := bodyBlocks[lenBodyBlocks-1-b]
+		newBlock.Body().AppendBlock(movedBlock)
+		block.Body().RemoveBlock(movedBlock)
+		tempBlocks = append(tempBlocks, newBlock)
+	}
+
+	// The block now only has attributes
+	block = cleanBlock(ctx, stage+"-m", block)
+	block = sortBlock(ctx, stage+"-s", block)
+
+	blockBody := block.Body()
+	for b := range tempBlocks {
+		tempBlock := cleanBlock(ctx, stage, tempBlocks[b])
+		tempBlocks := tempBlock.Body().Blocks()
+		for tbb := range tempBlocks {
+			blockBody.AppendNewline()
+			blockBody.AppendBlock(cleanBlock(ctx, stage, tempBlocks[tbb]))
+		}
+	}
+
+	return append(newBlocks, block)
+}
+
+func sortBlock(
+	ctx *context, stage string, block *hclwrite.Block) *hclwrite.Block {
+
+	tempFilename1 := fmt.Sprintf(
+		"%s/%s-%s-1-%d.hcl", ctx.tempDir, block.Type(), stage, rand.Int())
+	writeBlock(tempFilename1, block)
+
+	keys := []string{}
+	for key := range maps.Keys(block.Body().Attributes()) {
+		keys = append(keys, key)
+	}
+
+	slices.Sort(keys)
+
+	for k1 := range keys {
+		tempBlock := readBlock(tempFilename1)
+		for k2 := range keys {
+			if keys[k1] != keys[k2] {
+				tempBlock.Body().RemoveAttribute(keys[k2])
+			}
+		}
+		tempBlock = cleanBlock(ctx, stage, tempBlock)
+		writeBlock(fmt.Sprintf("%s-%s.hcl", tempFilename1, keys[k1]), tempBlock)
+	}
+
+	return block
+}
+
+func writeBlock(filename string, block *hclwrite.Block) {
+	tempName := block.Type()
+	tempFile := hclwrite.NewFile()
+	tempFile.Body().AppendBlock(block)
+	tempBytes := tempFile.Bytes()
+	labels := block.Labels()
+	for i := range labels {
+		tempName += fmt.Sprintf("-%s", labels[i])
+	}
+	errW := os.WriteFile(filename, tempBytes, 0644)
+	if errW != nil {
+		panic(errW)
+	}
+}
+
+func cleanBlock(ctx *context, stage string,
+	block *hclwrite.Block) *hclwrite.Block {
+
+	tempFile := hclwrite.NewFile()
+	tempFile.Body().AppendBlock(block)
+	tempBytes := tempFile.Bytes()
+	tempName := block.Type()
+	labels := block.Labels()
+	for i := range labels {
+		tempName += fmt.Sprintf("-%s", labels[i])
+	}
+	tempFilename1 := fmt.Sprintf(
+		"%s/%s-%s-1-%d.hcl", ctx.tempDir, tempName, stage, rand.Int())
+
+	errW := os.WriteFile(tempFilename1, tempBytes, 0644)
+	if errW != nil {
+		panic(errW)
+	}
+	open, err := os.Open(tempFilename1)
+	if err != nil {
+		panic(err)
+	}
+	s := bufio.NewScanner(open)
+	s.Split(bufio.ScanLines)
+	lines := []string{}
+	mode := 0
+	for s.Scan() {
+		text := s.Text()
+		if text != "" || mode > 1 {
+			lines = append(lines, text)
+			mode++
+		}
+	}
+	lenLines := len(lines)
+	newLines := []string{}
+	mode = 0
+	for line := range lines {
+		text := lines[lenLines-1-line]
+		if text != "" || mode > 1 {
+			newLines = append(newLines, text)
+		}
+	}
+
+	lines = []string{}
+	lenNewLines := len(newLines)
+	for line := range newLines {
+		text := newLines[lenNewLines-1-line]
+		lines = append(lines, text)
+	}
+
+	tempFilename2 := fmt.Sprintf(
+		"%s/%s-rewrite-2-%d.hcl", ctx.tempDir, tempName, rand.Int())
+
+	openFile, err := os.OpenFile(
+		tempFilename2, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
+
+	if err != nil {
+		panic(err)
+	}
+	writer := bufio.NewWriter(openFile)
+	for line := range lines {
+		writer.WriteString(lines[line])
+		writer.WriteString("\n")
+	}
+	writer.Flush()
+	return readBlock(tempFilename2)
+}
+
+func readBlock(filename string) *hclwrite.Block {
+	fileBytes, err := os.ReadFile(filename)
+	if err != nil {
+		panic(err)
+	}
+	file, diag := hclwrite.ParseConfig(fileBytes, filename, hcl.InitialPos)
+	if diag.HasErrors() {
+		panic(diag.Error())
+	}
+	return file.Body().Blocks()[0]
 }
 
 func writeTfFile(ctx *context, filename string, blocks []*hclwrite.Block) {
@@ -200,7 +397,6 @@ func writeTfFile(ctx *context, filename string, blocks []*hclwrite.Block) {
 	}
 
 	if len(blocks) == 0 {
-		// Create a enw file
 		file, err := os.Create(filename)
 		if err != nil {
 			panic(err)
@@ -209,7 +405,7 @@ func writeTfFile(ctx *context, filename string, blocks []*hclwrite.Block) {
 	} else {
 		file := hclwrite.NewFile()
 
-		sortBlocks(blocks)
+		blocks = rewriteBlocks(ctx, "tf", blocks)
 
 		len := len(blocks)
 		body := file.Body()
@@ -223,7 +419,8 @@ func writeTfFile(ctx *context, filename string, blocks []*hclwrite.Block) {
 		newBytes := file.Bytes()
 
 		if !bytes.Equal(fileBytes, newBytes) {
-			os.Stderr.WriteString(fmt.Sprintf("File state mismatch for \"%s\"\n", filename))
+			os.Stderr.WriteString(
+				fmt.Sprintf("File state mismatch for \"%s\"\n", filename))
 			ctx.exit = 1
 		}
 

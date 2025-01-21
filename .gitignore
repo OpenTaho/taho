@@ -1,1 +1,4 @@
-/release
+.terraform
+.terraform.lock.hcl
+release
+terraform.tfstate

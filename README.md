@@ -31,6 +31,7 @@ such that the code is structured as follows.
 4. `terraform.tf` exits with only terraform type blocks
 5. `providers.tf` exits with only terraform type blocks
 6. Blocks are in sorted order
+7. Nested blocks are after attributes
 
 ## Install with Go
 
