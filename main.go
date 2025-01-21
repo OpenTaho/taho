@@ -23,24 +23,23 @@ type context struct {
 }
 
 func main() {
-	handleOptions("0.0.4")
+	handleOptions("0.0.5")
 
-	ctx := context{exit: 0}
+	ctx1 := context{exit: 0}
 
-	run(ctx)
-	if ctx.exit == 1 {
-		run(ctx)
-		if ctx.exit == 0 {
-			ctx.exit = 1
-		} else {
-			ctx.exit = 2
+	run(&ctx1)
+	if ctx1.exit == 1 {
+		ctx2 := context{exit: 0}
+		run(&ctx2)
+		if ctx2.exit != 0 {
+			ctx1.exit = 2
 		}
 	}
 
-	os.Exit(ctx.exit)
+	os.Exit(ctx1.exit)
 }
 
-func run(ctx context) {
+func run(ctx *context) {
 	entries, err := os.ReadDir("./")
 	if err != nil {
 		panic(err)
@@ -133,13 +132,13 @@ func run(ctx context) {
 		ctx.terraform = append(ctx.terraform, newBlock)
 	}
 
-	writeTfFile(&ctx, "main.tf", ctx.main)
-	writeTfFile(&ctx, "outputs.tf", ctx.outputs)
-	writeTfFile(&ctx, "terraform.tf", ctx.terraform)
-	writeTfFile(&ctx, "variables.tf", ctx.variables)
+	writeTfFile(ctx, "main.tf", ctx.main)
+	writeTfFile(ctx, "outputs.tf", ctx.outputs)
+	writeTfFile(ctx, "terraform.tf", ctx.terraform)
+	writeTfFile(ctx, "variables.tf", ctx.variables)
 
 	if len(ctx.providers) > 0 {
-		writeTfFile(&ctx, "providers.tf", ctx.providers)
+		writeTfFile(ctx, "providers.tf", ctx.providers)
 	} else {
 		_, errS := os.Stat("providers.tf")
 		if errS == nil {
