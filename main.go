@@ -32,7 +32,7 @@ type context struct {
 }
 
 func main() {
-	ctx1 := context{version: "0.0.10"}
+	ctx1 := context{version: "0.0.11"}
 	ctx1.skip_clean_up = true
 	handleOptions(ctx1.version)
 
@@ -307,7 +307,40 @@ func sortBlockAttributes(
 	s.Scan()
 	lines = append(lines, s.Text())
 
+	metaArguments := map[string]bool{
+		"count":      true,
+		"depends_on": true,
+		"for_each":   true,
+	}
+
+	metaKeys := []string{}
+	nonMetaKeys := []string{}
+	for k := range keys {
+		key := keys[k]
+		_, metaArgument := metaArguments[key]
+		if metaArgument {
+			metaKeys = append(metaKeys, key)
+		} else {
+			nonMetaKeys = append(nonMetaKeys, key)
+		}
+	}
+
+	keys = append(metaKeys, nonMetaKeys...)
+
+	hasMetaArguments := false
+	if len(keys) > 0 {
+		hasMetaArguments = metaArguments[keys[0]]
+	}
 	for k1 := range keys {
+		key := keys[k1]
+		_, metaArgument := metaArguments[key]
+
+		if !metaArgument {
+			if hasMetaArguments {
+				lines = append(lines, "")
+			}
+		}
+
 		tempBlock := readBlock(tempFilename1)
 		for k2 := range keys {
 			if keys[k1] != keys[k2] {
@@ -317,7 +350,7 @@ func sortBlockAttributes(
 		tempBlock = cleanBlock(ctx, tempBlock)
 
 		tempFilename2 := fmt.Sprintf(
-			"%s/%d-%s-%s.hcl", ctx.tempDir, num(ctx), block.Type(), keys[k1])
+			"%s/%d-%s-%s.hcl", ctx.tempDir, num(ctx), block.Type(), key)
 
 		writeBlock(tempFilename2, tempBlock)
 
