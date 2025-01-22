@@ -18,35 +18,31 @@ import (
 )
 
 type context struct {
-	exit          int
-	level         int
-	num           int
-	main          []*hclwrite.Block
-	outputs       []*hclwrite.Block
-	providers     []*hclwrite.Block
-	skip_clean_up bool
-	tempDir       string
-	terraform     []*hclwrite.Block
-	variables     []*hclwrite.Block
-	version       string
+	exit      int
+	level     int
+	num       int
+	main      []*hclwrite.Block
+	outputs   []*hclwrite.Block
+	providers []*hclwrite.Block
+	tempDir   string
+	terraform []*hclwrite.Block
+	variables []*hclwrite.Block
+	version   string
 }
 
 func main() {
-	ctx1 := context{version: "0.0.13"}
-	ctx1.skip_clean_up = true
+	ctx1 := context{version: "0.0.14"}
 	handleOptions(ctx1.version)
 
 	run(&ctx1)
 	if ctx1.exit == 1 {
 		ctx2 := context{}
-		ctx2.skip_clean_up = ctx1.skip_clean_up
 		ctx2.level = ctx1.level + 1
 		run(&ctx2)
 		if ctx2.exit != 0 {
 			ctx1.exit = 2
 
 			ctx3 := context{}
-			ctx3.skip_clean_up = ctx2.skip_clean_up
 			ctx3.level = ctx2.level + 1
 			run(&ctx3)
 			if ctx3.exit != 0 {
@@ -187,7 +183,7 @@ func run(ctx *context) {
 		}
 	}
 
-	if !ctx.skip_clean_up {
+	if !strings.HasSuffix(ctx.version, "-0") {
 		errR := os.RemoveAll(ctx.tempDir)
 		if errR != nil {
 			panic(errR)
@@ -304,8 +300,14 @@ func sortBlockAttributes(
 	}
 	s := bufio.NewScanner(open)
 	s.Split(bufio.ScanLines)
-	s.Scan()
-	lines = append(lines, s.Text())
+	for s.Scan() {
+		text := s.Text()
+		lines = append(lines, text)
+		if !strings.HasPrefix(text, "#") {
+			break
+		}
+	}
+	start := len(lines) - 1
 
 	metaArguments := map[string]bool{
 		"count":      true,
@@ -395,7 +397,7 @@ func sortBlockAttributes(
 		priorWasMultiLine = isMultiLine
 
 		for n := range lines2 {
-			if n > 0 && n < lenLines2-1 {
+			if n > start && n < lenLines2-1 {
 				lines = append(lines, lines2[n])
 			}
 		}
@@ -403,7 +405,7 @@ func sortBlockAttributes(
 		hasProcessedOneKey = true
 	}
 
-	if !strings.HasSuffix(lines[0], "{}") {
+	if !strings.HasSuffix(lines[start], "{}") {
 		lines = append(lines, "}")
 	}
 
