@@ -31,7 +31,7 @@ type context struct {
 }
 
 func main() {
-	ctx1 := context{version: "0.0.15"}
+	ctx1 := context{version: "0.0.16"}
 	handleOptions(ctx1.version)
 
 	run(&ctx1)
@@ -313,6 +313,7 @@ func sortBlockAttributes(
 		"count":      true,
 		"depends_on": true,
 		"for_each":   true,
+		"source":     true,
 	}
 
 	metaKeys := []string{}
