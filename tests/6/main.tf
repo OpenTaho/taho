@@ -1,8 +1,9 @@
-data "template_file" "test" {
+resource "aws_ecr_repository" "test" {
   count = 0
-  template = null
+  name = null
+  id = null
   for_each = []
-  vars = {
+  tags = {
     account_id = null
   }
 }
