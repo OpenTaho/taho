@@ -9,8 +9,8 @@ resource "kubernetes_cluster_role" "planner" {
   }
 
   rule {
-    api_groups = ["*"]
     resources  = ["*"]
+    api_groups = ["*"]
     verbs      = ["list", "watch", "get"]
   }
 

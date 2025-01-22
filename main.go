@@ -30,7 +30,7 @@ type context struct {
 }
 
 func main() {
-	ctx1 := context{version: "0.0.7"}
+	ctx1 := context{version: "0.0.8"}
 	handleOptions(ctx1.version)
 
 	run(&ctx1)
@@ -228,19 +228,17 @@ func rewriteBlocks(ctx *context,
 	newBlocks := make([]*hclwrite.Block, 0)
 	for b := range blocks {
 		block := blocks[b]
-		newBlocks = rewriteBlock(ctx, newBlocks, block)
+		block = rewriteBlock(ctx, block)
+		newBlocks = append(newBlocks, block)
 	}
 
 	return newBlocks
 }
 
 func rewriteBlock(
-	ctx *context, newBlocks []*hclwrite.Block,
-	block *hclwrite.Block) []*hclwrite.Block {
+	ctx *context, block *hclwrite.Block) *hclwrite.Block {
 
-	tempBlocks := make([]*hclwrite.Block, 0)
-	tempBlocks = append(tempBlocks, block)
-
+	detatchedNestedBlocks := make([]*hclwrite.Block, 0)
 	bodyBlocks := block.Body().Blocks()
 	lenBodyBlocks := len(bodyBlocks)
 	for b := range bodyBlocks {
@@ -248,29 +246,35 @@ func rewriteBlock(
 		movedBlock := bodyBlocks[lenBodyBlocks-1-b]
 		newBlock.Body().AppendBlock(movedBlock)
 		block.Body().RemoveBlock(movedBlock)
-		tempBlocks = append(tempBlocks, newBlock)
+		detatchedNestedBlocks = append(detatchedNestedBlocks, newBlock)
 	}
 
-	// The block now only has attributes
+	// The block now only has attributes and in this state we can sort the
+	// attributes.
 	block = cleanBlock(ctx, block)
 	block = sortBlockAttributes(ctx, block)
-	blockBody := block.Body()
+
 	keys := getAttributeKeys(block)
+
+	// Now we can reattach the nested blocks
 	newLineNeeded := len(keys) > 0
-	lenTempBlocks := len(tempBlocks)
-	for b := range tempBlocks {
-		tempBlock := cleanBlock(ctx, tempBlocks[lenTempBlocks-1-b])
+	lenTempBlocks := len(detatchedNestedBlocks)
+	blockBody := block.Body()
+	for b := range detatchedNestedBlocks {
+		tempBlock := cleanBlock(ctx, detatchedNestedBlocks[lenTempBlocks-1-b])
 		tempBlocks := tempBlock.Body().Blocks()
 		for tbb := range tempBlocks {
 			if newLineNeeded {
 				blockBody.AppendNewline()
 			}
-			blockBody.AppendBlock(cleanBlock(ctx, tempBlocks[tbb]))
+			nestedBlock := tempBlocks[tbb]
+			nestedBlock = rewriteBlock(ctx, nestedBlock)
+			blockBody.AppendBlock(nestedBlock)
 			newLineNeeded = true
 		}
 	}
 
-	return append(newBlocks, block)
+	return block
 }
 
 func sortBlockAttributes(
