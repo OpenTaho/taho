@@ -30,7 +30,7 @@ type context struct {
 }
 
 func main() {
-	ctx1 := context{version: "0.0.8"}
+	ctx1 := context{version: "0.0.9"}
 	handleOptions(ctx1.version)
 
 	run(&ctx1)
@@ -334,7 +334,10 @@ func sortBlockAttributes(
 		}
 	}
 
-	lines = append(lines, "}")
+	if !strings.HasSuffix(lines[0], "{}") {
+		lines = append(lines, "}")
+	}
+
 	tempFilename3 := fmt.Sprintf(
 		"%s/%s-1-%d.hcl", ctx.tempDir, block.Type(), rand.Int())
 	writeLines(tempFilename3, lines)

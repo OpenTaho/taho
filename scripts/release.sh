@@ -1,6 +1,7 @@
 #!/bin/bash
 
-mkdir -p release
+rm -rf release
+mkdir release
 
 go install
 
