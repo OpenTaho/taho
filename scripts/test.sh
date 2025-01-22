@@ -12,15 +12,16 @@ main() {
   test 1 91268ce3a9f4edb082291f5283ecce8fdf6c71d0
   test 2 44373f9b0b1095d02c744f1a9b9e7e7f8995bdb4
   test 3 6422ff9a0533e512f26a33241ec8366266b307bb
-  test 4 e9b922d484b5facf6a0ef4e8d878122744a1598a
+  test 4 560b61f79ae3055705866face1cd3bfe1d3eca3a
+  test 5 88c1a8f8f8f6a38562f0af0f97690c524e8dd533
 }
 
 test() {
   expected="$2"
   (
-    rm -rf "result-$1"
-    cp -r "$1" "result-$1"    
-    cd "result-$1" || exit 1
+    rm -rf "$1-result"
+    cp -r "$1" "$1-result"
+    cd "$1-result" || exit 1
 
     taho > /dev/null
 

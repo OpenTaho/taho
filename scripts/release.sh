@@ -5,7 +5,8 @@ mkdir release
 
 go install
 
-v="$(taho -v)"
+v="v$(taho -v)"
+git tag -f -s -m "$v" "$v"
 
 for os in linux darwin; do
   for arch in amd64 arm64; do

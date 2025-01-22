@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io/fs"
 	"maps"
-	"math/rand"
 	"os"
 	"slices"
 	"strings"
@@ -19,28 +18,36 @@ import (
 )
 
 type context struct {
-	exit      int
-	main      []*hclwrite.Block
-	outputs   []*hclwrite.Block
-	providers []*hclwrite.Block
-	tempDir   string
-	terraform []*hclwrite.Block
-	variables []*hclwrite.Block
-	version   string
+	exit          int
+	level         int
+	num           int
+	main          []*hclwrite.Block
+	outputs       []*hclwrite.Block
+	providers     []*hclwrite.Block
+	skip_clean_up bool
+	tempDir       string
+	terraform     []*hclwrite.Block
+	variables     []*hclwrite.Block
+	version       string
 }
 
 func main() {
-	ctx1 := context{version: "0.0.9"}
+	ctx1 := context{version: "0.0.10"}
+	ctx1.skip_clean_up = true
 	handleOptions(ctx1.version)
 
 	run(&ctx1)
 	if ctx1.exit == 1 {
 		ctx2 := context{}
+		ctx2.skip_clean_up = ctx1.skip_clean_up
+		ctx2.level = ctx1.level + 1
 		run(&ctx2)
 		if ctx2.exit != 0 {
 			ctx1.exit = 2
 
 			ctx3 := context{}
+			ctx3.skip_clean_up = ctx2.skip_clean_up
+			ctx3.level = ctx2.level + 1
 			run(&ctx3)
 			if ctx3.exit != 0 {
 				ctx1.exit = 3
@@ -58,7 +65,7 @@ func run(ctx *context) {
 	}
 
 	for {
-		ctx.tempDir = fmt.Sprintf(".terraform/taho/%d", rand.Int())
+		ctx.tempDir = fmt.Sprintf(".terraform/taho/%d-%d", ctx.level, num(ctx))
 		_, err := os.Stat(ctx.tempDir)
 		if err != nil {
 			if errors.Is(err, fs.ErrNotExist) {
@@ -136,7 +143,7 @@ func run(ctx *context) {
 					if !bytes.Equal(fileBytes, newBytes) {
 						os.Stderr.WriteString(
 							fmt.Sprintf(
-								"Main file state mismatch for \"%s\"\n", filename))
+								"File mismatch: \"%s\"\n", filename))
 						ctx.exit = 1
 					}
 					if len == 0 {
@@ -180,9 +187,11 @@ func run(ctx *context) {
 		}
 	}
 
-	errR := os.RemoveAll(ctx.tempDir)
-	if errR != nil {
-		panic(errR)
+	if !ctx.skip_clean_up {
+		errR := os.RemoveAll(ctx.tempDir)
+		if errR != nil {
+			panic(errR)
+		}
 	}
 }
 
@@ -281,7 +290,7 @@ func sortBlockAttributes(
 	ctx *context, block *hclwrite.Block) *hclwrite.Block {
 
 	tempFilename1 := fmt.Sprintf(
-		"%s/%s-1-%d.hcl", ctx.tempDir, block.Type(), rand.Int())
+		"%s/%d-%s.hcl", ctx.tempDir, num(ctx), block.Type())
 	writeBlock(tempFilename1, block)
 
 	keys := getAttributeKeys(block)
@@ -308,7 +317,7 @@ func sortBlockAttributes(
 		tempBlock = cleanBlock(ctx, tempBlock)
 
 		tempFilename2 := fmt.Sprintf(
-			"%s/%s-%s-%d.hcl", ctx.tempDir, block.Type(), keys[k1], rand.Int())
+			"%s/%d-%s-%s.hcl", ctx.tempDir, num(ctx), block.Type(), keys[k1])
 
 		writeBlock(tempFilename2, tempBlock)
 
@@ -318,14 +327,19 @@ func sortBlockAttributes(
 		}
 		s := bufio.NewScanner(open)
 		s.Split(bufio.ScanLines)
-		s.Text()
 		lines2 := []string{}
 		for s.Scan() {
-			lines2 = append(lines2, s.Text())
+			text := s.Text()
+			lines2 = append(lines2, text)
 		}
+
 		lenLines2 := len(lines2)
-		if lenLines2 > 3 {
-			lines = append(lines, "")
+		testLine := lines2[lenLines2-2]
+		test := strings.Fields(testLine)
+		if len(test) > 1 {
+			if test[1] != "=" {
+				lines = append(lines, "")
+			}
 		}
 		for n := range lines2 {
 			if n > 0 && n < lenLines2-1 {
@@ -339,9 +353,15 @@ func sortBlockAttributes(
 	}
 
 	tempFilename3 := fmt.Sprintf(
-		"%s/%s-1-%d.hcl", ctx.tempDir, block.Type(), rand.Int())
+		"%s/%d-put-%s.hcl", ctx.tempDir, num(ctx), block.Type())
 	writeLines(tempFilename3, lines)
-	return readBlock(tempFilename3)
+	block = readBlock(tempFilename3)
+	writeDebugBlock(ctx, "get", block)
+	return block
+}
+
+func writeDebugBlock(ctx *context, desc string, block *hclwrite.Block) {
+	writeBlock(fmt.Sprintf("%s/%d-debug-%s.hcl", ctx.tempDir, num(ctx), desc), block)
 }
 
 func getAttributeKeys(block *hclwrite.Block) []string {
@@ -375,8 +395,9 @@ func cleanBlock(ctx *context,
 	for i := range labels {
 		tempName += fmt.Sprintf("-%s", labels[i])
 	}
+
 	tempFilename1 := fmt.Sprintf(
-		"%s/%s-1-%d.hcl", ctx.tempDir, tempName, rand.Int())
+		"%s/%d-%s.hcl", ctx.tempDir, num(ctx), tempName)
 	writeBlock(tempFilename1, block)
 
 	open, err := os.Open(tempFilename1)
@@ -412,7 +433,7 @@ func cleanBlock(ctx *context,
 	}
 
 	tempFilename2 := fmt.Sprintf(
-		"%s/%s-rewrite-2-%d.hcl", ctx.tempDir, tempName, rand.Int())
+		"%s/%d-%s.hcl", ctx.tempDir, num(ctx), tempName)
 
 	writeLines(tempFilename2, lines)
 	return readBlock(tempFilename2)
@@ -426,7 +447,8 @@ func writeLines(filename string, lines []string) {
 	}
 	writer := bufio.NewWriter(openFile)
 	for line := range lines {
-		writer.WriteString(lines[line])
+		lineText := lines[line]
+		writer.WriteString(lineText)
 		writer.WriteString("\n")
 	}
 	writer.Flush()
@@ -441,7 +463,8 @@ func readBlock(filename string) *hclwrite.Block {
 	if diag.HasErrors() {
 		panic(diag.Error())
 	}
-	return file.Body().Blocks()[0]
+	block := file.Body().Blocks()[0]
+	return block
 }
 
 func writeTfFile(ctx *context, filename string, blocks []*hclwrite.Block) {
@@ -479,7 +502,7 @@ func writeTfFile(ctx *context, filename string, blocks []*hclwrite.Block) {
 
 		if !bytes.Equal(fileBytes, newBytes) {
 			os.Stderr.WriteString(
-				fmt.Sprintf("File state mismatch for \"%s\"\n", filename))
+				fmt.Sprintf("Managed file mismatch: \"%s\"\n", filename))
 			ctx.exit = 1
 		}
 
@@ -503,4 +526,9 @@ func handleVersionOption(version string) {
 	} else {
 		panic("Invalid parameter")
 	}
+}
+
+func num(ctx *context) int {
+	ctx.num++
+	return ctx.num
 }
