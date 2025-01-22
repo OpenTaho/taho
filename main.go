@@ -32,7 +32,7 @@ type context struct {
 }
 
 func main() {
-	ctx1 := context{version: "0.0.11"}
+	ctx1 := context{version: "0.0.12"}
 	ctx1.skip_clean_up = true
 	handleOptions(ctx1.version)
 
@@ -317,6 +317,7 @@ func sortBlockAttributes(
 	nonMetaKeys := []string{}
 	for k := range keys {
 		key := keys[k]
+
 		_, metaArgument := metaArguments[key]
 		if metaArgument {
 			metaKeys = append(metaKeys, key)
@@ -327,17 +328,19 @@ func sortBlockAttributes(
 
 	keys = append(metaKeys, nonMetaKeys...)
 
-	hasMetaArguments := false
+	hasProcessedOneKey := false
+	metaArgumentSection := false
 	if len(keys) > 0 {
-		hasMetaArguments = metaArguments[keys[0]]
+		metaArgumentSection = metaArguments[keys[0]]
 	}
 	for k1 := range keys {
 		key := keys[k1]
 		_, metaArgument := metaArguments[key]
 
 		if !metaArgument {
-			if hasMetaArguments {
+			if metaArgumentSection {
 				lines = append(lines, "")
+				metaArgumentSection = false
 			}
 		}
 
@@ -369,16 +372,24 @@ func sortBlockAttributes(
 		lenLines2 := len(lines2)
 		testLine := lines2[lenLines2-2]
 		test := strings.Fields(testLine)
-		if len(test) > 1 {
-			if test[1] != "=" {
+
+		if hasProcessedOneKey {
+			if len(test) > 1 {
+				if test[1] != "=" {
+					lines = append(lines, "")
+				}
+			} else {
 				lines = append(lines, "")
 			}
 		}
+
 		for n := range lines2 {
 			if n > 0 && n < lenLines2-1 {
 				lines = append(lines, lines2[n])
 			}
 		}
+
+		hasProcessedOneKey = true
 	}
 
 	if !strings.HasSuffix(lines[0], "{}") {
