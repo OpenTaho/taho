@@ -32,7 +32,7 @@ type context struct {
 }
 
 func main() {
-	ctx1 := context{version: "0.0.12"}
+	ctx1 := context{version: "0.0.13"}
 	ctx1.skip_clean_up = true
 	handleOptions(ctx1.version)
 
@@ -328,6 +328,7 @@ func sortBlockAttributes(
 
 	keys = append(metaKeys, nonMetaKeys...)
 
+	priorWasMultiLine := false
 	hasProcessedOneKey := false
 	metaArgumentSection := false
 	if len(keys) > 0 {
@@ -373,15 +374,25 @@ func sortBlockAttributes(
 		testLine := lines2[lenLines2-2]
 		test := strings.Fields(testLine)
 
+		isMultiLine := false
 		if hasProcessedOneKey {
 			if len(test) > 1 {
 				if test[1] != "=" {
-					lines = append(lines, "")
+					isMultiLine = true
 				}
 			} else {
+				isMultiLine = true
+			}
+
+			if isMultiLine {
 				lines = append(lines, "")
+			} else {
+				if priorWasMultiLine {
+					lines = append(lines, "")
+				}
 			}
 		}
+		priorWasMultiLine = isMultiLine
 
 		for n := range lines2 {
 			if n > 0 && n < lenLines2-1 {
