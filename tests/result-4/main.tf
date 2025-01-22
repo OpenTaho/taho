@@ -1,6 +1,6 @@
 locals {
-  attribute2 = null
   attribute1 = null
+  attribute2 = null
 }
 
 resource "kubernetes_cluster_role" "planner" {

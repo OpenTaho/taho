@@ -23,7 +23,6 @@ type context struct {
 	main      []*hclwrite.Block
 	outputs   []*hclwrite.Block
 	providers []*hclwrite.Block
-	run       int
 	tempDir   string
 	terraform []*hclwrite.Block
 	variables []*hclwrite.Block
@@ -31,15 +30,21 @@ type context struct {
 }
 
 func main() {
-	ctx1 := context{version: "0.0.6"}
+	ctx1 := context{version: "0.0.7"}
 	handleOptions(ctx1.version)
 
 	run(&ctx1)
 	if ctx1.exit == 1 {
-		ctx2 := context{run: 1}
+		ctx2 := context{}
 		run(&ctx2)
 		if ctx2.exit != 0 {
 			ctx1.exit = 2
+
+			ctx3 := context{}
+			run(&ctx3)
+			if ctx3.exit != 0 {
+				ctx1.exit = 3
+			}
 		}
 	}
 
@@ -53,7 +58,7 @@ func run(ctx *context) {
 	}
 
 	for {
-		ctx.tempDir = fmt.Sprintf(".terraform/taho/%d-%d", ctx.run, rand.Int())
+		ctx.tempDir = fmt.Sprintf(".terraform/taho/%d", rand.Int())
 		_, err := os.Stat(ctx.tempDir)
 		if err != nil {
 			if errors.Is(err, fs.ErrNotExist) {
@@ -114,13 +119,14 @@ func run(ctx *context) {
 
 				newFile := hclwrite.NewFile()
 
-				blocks = rewriteBlocks(ctx, "run", blocks)
+				blocks = rewriteBlocks(ctx, blocks)
 
 				len := len(blocks)
+				newFileBody := newFile.Body()
 				for i, block := range blocks {
-					newFile.Body().AppendBlock(block)
+					newFileBody.AppendBlock(block)
 					if i < len-1 {
-						newFile.Body().AppendNewline()
+						newFileBody.AppendNewline()
 					}
 				}
 
@@ -180,7 +186,7 @@ func run(ctx *context) {
 	}
 }
 
-func rewriteBlocks(ctx *context, stage string,
+func rewriteBlocks(ctx *context,
 	blocks []*hclwrite.Block) []*hclwrite.Block {
 
 	blockCmp := func(a *hclwrite.Block, b *hclwrite.Block) int {
@@ -222,14 +228,14 @@ func rewriteBlocks(ctx *context, stage string,
 	newBlocks := make([]*hclwrite.Block, 0)
 	for b := range blocks {
 		block := blocks[b]
-		newBlocks = rewriteBlock(ctx, stage, newBlocks, block)
+		newBlocks = rewriteBlock(ctx, newBlocks, block)
 	}
 
 	return newBlocks
 }
 
 func rewriteBlock(
-	ctx *context, stage string, newBlocks []*hclwrite.Block,
+	ctx *context, newBlocks []*hclwrite.Block,
 	block *hclwrite.Block) []*hclwrite.Block {
 
 	tempBlocks := make([]*hclwrite.Block, 0)
@@ -246,35 +252,47 @@ func rewriteBlock(
 	}
 
 	// The block now only has attributes
-	block = cleanBlock(ctx, stage+"-m", block)
-	block = sortBlock(ctx, stage+"-s", block)
-
+	block = cleanBlock(ctx, block)
+	block = sortBlockAttributes(ctx, block)
 	blockBody := block.Body()
+	keys := getAttributeKeys(block)
+	newLineNeeded := len(keys) > 0
+	lenTempBlocks := len(tempBlocks)
 	for b := range tempBlocks {
-		tempBlock := cleanBlock(ctx, stage, tempBlocks[b])
+		tempBlock := cleanBlock(ctx, tempBlocks[lenTempBlocks-1-b])
 		tempBlocks := tempBlock.Body().Blocks()
 		for tbb := range tempBlocks {
-			blockBody.AppendNewline()
-			blockBody.AppendBlock(cleanBlock(ctx, stage, tempBlocks[tbb]))
+			if newLineNeeded {
+				blockBody.AppendNewline()
+			}
+			blockBody.AppendBlock(cleanBlock(ctx, tempBlocks[tbb]))
+			newLineNeeded = true
 		}
 	}
 
 	return append(newBlocks, block)
 }
 
-func sortBlock(
-	ctx *context, stage string, block *hclwrite.Block) *hclwrite.Block {
+func sortBlockAttributes(
+	ctx *context, block *hclwrite.Block) *hclwrite.Block {
 
 	tempFilename1 := fmt.Sprintf(
-		"%s/%s-%s-1-%d.hcl", ctx.tempDir, block.Type(), stage, rand.Int())
+		"%s/%s-1-%d.hcl", ctx.tempDir, block.Type(), rand.Int())
 	writeBlock(tempFilename1, block)
 
-	keys := []string{}
-	for key := range maps.Keys(block.Body().Attributes()) {
-		keys = append(keys, key)
-	}
+	keys := getAttributeKeys(block)
 
 	slices.Sort(keys)
+
+	lines := []string{}
+	open, err := os.Open(tempFilename1)
+	if err != nil {
+		panic(err)
+	}
+	s := bufio.NewScanner(open)
+	s.Split(bufio.ScanLines)
+	s.Scan()
+	lines = append(lines, s.Text())
 
 	for k1 := range keys {
 		tempBlock := readBlock(tempFilename1)
@@ -283,11 +301,48 @@ func sortBlock(
 				tempBlock.Body().RemoveAttribute(keys[k2])
 			}
 		}
-		tempBlock = cleanBlock(ctx, stage, tempBlock)
-		writeBlock(fmt.Sprintf("%s-%s.hcl", tempFilename1, keys[k1]), tempBlock)
+		tempBlock = cleanBlock(ctx, tempBlock)
+
+		tempFilename2 := fmt.Sprintf(
+			"%s/%s-%s-%d.hcl", ctx.tempDir, block.Type(), keys[k1], rand.Int())
+
+		writeBlock(tempFilename2, tempBlock)
+
+		open, err := os.Open(tempFilename2)
+		if err != nil {
+			panic(err)
+		}
+		s := bufio.NewScanner(open)
+		s.Split(bufio.ScanLines)
+		s.Text()
+		lines2 := []string{}
+		for s.Scan() {
+			lines2 = append(lines2, s.Text())
+		}
+		lenLines2 := len(lines2)
+		if lenLines2 > 3 {
+			lines = append(lines, "")
+		}
+		for n := range lines2 {
+			if n > 0 && n < lenLines2-1 {
+				lines = append(lines, lines2[n])
+			}
+		}
 	}
 
-	return block
+	lines = append(lines, "}")
+	tempFilename3 := fmt.Sprintf(
+		"%s/%s-1-%d.hcl", ctx.tempDir, block.Type(), rand.Int())
+	writeLines(tempFilename3, lines)
+	return readBlock(tempFilename3)
+}
+
+func getAttributeKeys(block *hclwrite.Block) []string {
+	keys := []string{}
+	for key := range maps.Keys(block.Body().Attributes()) {
+		keys = append(keys, key)
+	}
+	return keys
 }
 
 func writeBlock(filename string, block *hclwrite.Block) {
@@ -305,24 +360,18 @@ func writeBlock(filename string, block *hclwrite.Block) {
 	}
 }
 
-func cleanBlock(ctx *context, stage string,
+func cleanBlock(ctx *context,
 	block *hclwrite.Block) *hclwrite.Block {
 
-	tempFile := hclwrite.NewFile()
-	tempFile.Body().AppendBlock(block)
-	tempBytes := tempFile.Bytes()
 	tempName := block.Type()
 	labels := block.Labels()
 	for i := range labels {
 		tempName += fmt.Sprintf("-%s", labels[i])
 	}
 	tempFilename1 := fmt.Sprintf(
-		"%s/%s-%s-1-%d.hcl", ctx.tempDir, tempName, stage, rand.Int())
+		"%s/%s-1-%d.hcl", ctx.tempDir, tempName, rand.Int())
+	writeBlock(tempFilename1, block)
 
-	errW := os.WriteFile(tempFilename1, tempBytes, 0644)
-	if errW != nil {
-		panic(errW)
-	}
 	open, err := os.Open(tempFilename1)
 	if err != nil {
 		panic(err)
@@ -358,9 +407,13 @@ func cleanBlock(ctx *context, stage string,
 	tempFilename2 := fmt.Sprintf(
 		"%s/%s-rewrite-2-%d.hcl", ctx.tempDir, tempName, rand.Int())
 
-	openFile, err := os.OpenFile(
-		tempFilename2, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
+	writeLines(tempFilename2, lines)
+	return readBlock(tempFilename2)
+}
 
+func writeLines(filename string, lines []string) {
+	openFile, err := os.OpenFile(
+		filename, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
 	if err != nil {
 		panic(err)
 	}
@@ -370,7 +423,6 @@ func cleanBlock(ctx *context, stage string,
 		writer.WriteString("\n")
 	}
 	writer.Flush()
-	return readBlock(tempFilename2)
 }
 
 func readBlock(filename string) *hclwrite.Block {
@@ -405,7 +457,7 @@ func writeTfFile(ctx *context, filename string, blocks []*hclwrite.Block) {
 	} else {
 		file := hclwrite.NewFile()
 
-		blocks = rewriteBlocks(ctx, "tf", blocks)
+		blocks = rewriteBlocks(ctx, blocks)
 
 		len := len(blocks)
 		body := file.Body()
