@@ -31,7 +31,7 @@ type context struct {
 }
 
 func main() {
-	ctx1 := context{version: "0.0.18"}
+	ctx1 := context{version: "0.0.19"}
 	handleOptions(ctx1.version)
 
 	run(&ctx1)
@@ -375,14 +375,15 @@ func sortBlockAttributes(
 			isMultiLine = true
 		}
 
+		_, metaKey := metaArguments[key]
 		if isMultiLine {
-			if metaArgumentSection {
+			if metaKey {
 				multiLineMetaKeys = append(multiLineMetaKeys, key)
 			} else {
 				multiLineKeys = append(multiLineKeys, key)
 			}
 		} else {
-			if metaArgumentSection {
+			if metaKey {
 				singleLineMetaKeys = append(singleLineMetaKeys, key)
 			} else {
 				singleLineKeys = append(singleLineKeys, key)
