@@ -31,7 +31,7 @@ type context struct {
 }
 
 func main() {
-	ctx1 := context{version: "0.0.16"}
+	ctx1 := context{version: "0.0.17"}
 	handleOptions(ctx1.version)
 
 	run(&ctx1)
@@ -333,10 +333,72 @@ func sortBlockAttributes(
 
 	priorWasMultiLine := false
 	hasProcessedOneKey := false
+	// START
+
+	multiLineKeys := []string{}
+	multiLineMetaKeys := []string{}
+	singleLineKeys := []string{}
+	singleLineMetaKeys := []string{}
+
 	metaArgumentSection := false
 	if len(keys) > 0 {
 		metaArgumentSection = metaArguments[keys[0]]
 	}
+	for k1 := range keys {
+		key := keys[k1]
+		tempBlock := readBlock(tempFilename1)
+		for k2 := range keys {
+			if keys[k1] != keys[k2] {
+				tempBlock.Body().RemoveAttribute(keys[k2])
+			}
+		}
+		tempBlock = cleanBlock(ctx, tempBlock)
+		tempFilename2 := fmt.Sprintf(
+			"%s/%d-%s-%s.hcl", ctx.tempDir, num(ctx), block.Type(), key)
+		writeBlock(tempFilename2, tempBlock)
+		open, err := os.Open(tempFilename2)
+		if err != nil {
+			panic(err)
+		}
+		s := bufio.NewScanner(open)
+		s.Split(bufio.ScanLines)
+		lines2 := []string{}
+		for s.Scan() {
+			text := s.Text()
+			lines2 = append(lines2, text)
+		}
+		lenLines2 := len(lines2)
+		testLine := lines2[lenLines2-2]
+		test := strings.Fields(testLine)
+		isMultiLine := false
+		if len(test) > 1 {
+			if test[1] != "=" {
+				isMultiLine = true
+			}
+		} else {
+			isMultiLine = true
+		}
+
+		if isMultiLine {
+			if metaArgumentSection {
+				multiLineMetaKeys = append(multiLineMetaKeys, key)
+			} else {
+				multiLineKeys = append(multiLineKeys, key)
+			}
+		} else {
+			if metaArgumentSection {
+				singleLineMetaKeys = append(singleLineMetaKeys, key)
+			} else {
+				singleLineKeys = append(singleLineKeys, key)
+			}
+		}
+	}
+
+	keys = append(singleLineMetaKeys, multiLineMetaKeys...)
+	keys = append(keys, singleLineKeys...)
+	keys = append(keys, multiLineKeys...)
+
+	// STOP
 	for k1 := range keys {
 		key := keys[k1]
 		_, metaArgument := metaArguments[key]
