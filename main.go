@@ -31,7 +31,7 @@ type context struct {
 }
 
 func main() {
-	ctx1 := context{version: "0.0.19"}
+	ctx1 := context{version: "0.0.20"}
 	handleOptions(ctx1.version)
 
 	run(&ctx1)
@@ -254,14 +254,10 @@ func rewriteBlock(
 		detatchedNestedBlocks = append(detatchedNestedBlocks, newBlock)
 	}
 
-	// The block now only has attributes and in this state we can sort the
-	// attributes.
 	block = cleanBlock(ctx, block)
-	block = sortBlockAttributes(ctx, block)
+	block = sortAttributes(ctx, block)
 
 	keys := getAttributeKeys(block)
-
-	// Now we can reattach the nested blocks
 	newLineNeeded := len(keys) > 0
 	lenTempBlocks := len(detatchedNestedBlocks)
 	blockBody := block.Body()
@@ -282,7 +278,7 @@ func rewriteBlock(
 	return block
 }
 
-func sortBlockAttributes(
+func sortAttributes(
 	ctx *context, block *hclwrite.Block) *hclwrite.Block {
 
 	tempFilename1 := fmt.Sprintf(
@@ -290,7 +286,6 @@ func sortBlockAttributes(
 	writeBlock(tempFilename1, block)
 
 	keys := getAttributeKeys(block)
-
 	slices.Sort(keys)
 
 	lines := []string{}
@@ -298,6 +293,7 @@ func sortBlockAttributes(
 	if err != nil {
 		panic(err)
 	}
+
 	s := bufio.NewScanner(open)
 	s.Split(bufio.ScanLines)
 	for s.Scan() {
@@ -336,10 +332,6 @@ func sortBlockAttributes(
 	singleLineKeys := []string{}
 	singleLineMetaKeys := []string{}
 
-	metaArgumentSection := false
-	if len(keys) > 0 {
-		metaArgumentSection = metaArguments[keys[0]]
-	}
 	for k1 := range keys {
 		key := keys[k1]
 		tempBlock := readBlock(tempFilename1)
@@ -396,8 +388,7 @@ func sortBlockAttributes(
 	keys = append(keys, multiLineKeys...)
 
 	hasProcessedOneKey := false
-	priorWasMultiLine := false
-	metaArgumentSection = false
+	metaArgumentSection := false
 	if len(keys) > 0 {
 		metaArgumentSection = metaArguments[keys[0]]
 	}
@@ -453,14 +444,8 @@ func sortBlockAttributes(
 		if hasProcessedOneKey {
 			if isMultiLine {
 				lines = append(lines, "")
-			} else {
-				if priorWasMultiLine {
-					lines = append(lines, "")
-				}
 			}
 		}
-
-		priorWasMultiLine = isMultiLine
 
 		for n := range lines2 {
 			if n > start && n < lenLines2-1 {
