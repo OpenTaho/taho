@@ -31,7 +31,7 @@ type context struct {
 }
 
 func main() {
-	ctx1 := context{version: "0.0.17"}
+	ctx1 := context{version: "0.0.18"}
 	handleOptions(ctx1.version)
 
 	run(&ctx1)
@@ -331,10 +331,6 @@ func sortBlockAttributes(
 
 	keys = append(metaKeys, nonMetaKeys...)
 
-	priorWasMultiLine := false
-	hasProcessedOneKey := false
-	// START
-
 	multiLineKeys := []string{}
 	multiLineMetaKeys := []string{}
 	singleLineKeys := []string{}
@@ -398,7 +394,12 @@ func sortBlockAttributes(
 	keys = append(keys, singleLineKeys...)
 	keys = append(keys, multiLineKeys...)
 
-	// STOP
+	hasProcessedOneKey := false
+	priorWasMultiLine := false
+	metaArgumentSection = false
+	if len(keys) > 0 {
+		metaArgumentSection = metaArguments[keys[0]]
+	}
 	for k1 := range keys {
 		key := keys[k1]
 		_, metaArgument := metaArguments[key]
