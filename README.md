@@ -33,6 +33,23 @@ such that the code is structured as follows.
 6. Blocks are in sorted order
 7. Nested blocks are after attributes
 
+## Problems
+
+This tool is still in early development and as such we have a few problems that
+we know about as well as many problems that we don't yet know about. The tool
+rewrites all Terraform files in a given directory and works well for most
+Terraform syntax with the following exceptions.
+
+1. File header comments may be lost.
+2. Comments prior to a block but with a line of whitespace between the comment
+and the block may be lost or moved.
+3. Comments using `//` or `/*` may be mishandled and/or may crash the program.
+
+When you run this tool it is possible that your terraform files will be altered
+in ways that introduce errors and as such please make sure you are under version
+control prior to running the tool. After you run the tool make sure to test and
+review the project.
+
 ## Install with Go
 
 The tool can installed using Go.

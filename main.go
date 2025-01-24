@@ -31,7 +31,7 @@ type context struct {
 }
 
 func main() {
-	ctx1 := context{version: "0.0.21"}
+	ctx1 := context{version: "0.0.22"}
 	handleOptions(ctx1.version)
 
 	run(&ctx1)
@@ -122,7 +122,7 @@ func run(ctx *context) {
 
 				newFile := hclwrite.NewFile()
 
-				blocks = rewriteBlocks(ctx, blocks)
+				blocks = rewriteBlocks(ctx, blocks, true)
 
 				len := len(blocks)
 				newFileBody := newFile.Body()
@@ -191,8 +191,8 @@ func run(ctx *context) {
 	}
 }
 
-func rewriteBlocks(ctx *context,
-	blocks []*hclwrite.Block) []*hclwrite.Block {
+func rewriteBlocks(ctx *context, blocks []*hclwrite.Block,
+	metaArgMode bool) []*hclwrite.Block {
 
 	blockCmp := func(a *hclwrite.Block, b *hclwrite.Block) int {
 		typeOrder := cmp.Compare(a.Type(), b.Type())
@@ -233,7 +233,7 @@ func rewriteBlocks(ctx *context,
 	newBlocks := make([]*hclwrite.Block, 0)
 	for b := range blocks {
 		block := blocks[b]
-		block = rewriteBlock(ctx, block)
+		block = rewriteBlock(ctx, block, metaArgMode)
 		newBlocks = append(newBlocks, block)
 	}
 
@@ -241,7 +241,8 @@ func rewriteBlocks(ctx *context,
 }
 
 func rewriteBlock(
-	ctx *context, block *hclwrite.Block) *hclwrite.Block {
+	ctx *context, block *hclwrite.Block,
+	metaArgMode bool) *hclwrite.Block {
 
 	detatchedNestedBlocks := make([]*hclwrite.Block, 0)
 	bodyBlocks := block.Body().Blocks()
@@ -255,7 +256,7 @@ func rewriteBlock(
 	}
 
 	block = cleanBlock(ctx, block)
-	block = sortAttributes(ctx, block)
+	block = sortAttributes(ctx, block, metaArgMode)
 
 	keys := getAttributeKeys(block)
 	newLineNeeded := len(keys) > 0
@@ -269,7 +270,7 @@ func rewriteBlock(
 				blockBody.AppendNewline()
 			}
 			nestedBlock := tempBlocks[tbb]
-			nestedBlock = rewriteBlock(ctx, nestedBlock)
+			nestedBlock = rewriteBlock(ctx, nestedBlock, metaArgMode)
 			blockBody.AppendBlock(nestedBlock)
 			newLineNeeded = true
 		}
@@ -279,7 +280,7 @@ func rewriteBlock(
 }
 
 func sortAttributes(
-	ctx *context, block *hclwrite.Block) *hclwrite.Block {
+	ctx *context, block *hclwrite.Block, metaArgMode bool) *hclwrite.Block {
 
 	tempFilename1 := fmt.Sprintf(
 		"%s/%d-%s.hcl", ctx.tempDir, num(ctx), block.Type())
@@ -312,6 +313,10 @@ func sortAttributes(
 		"source":     true,
 	}
 
+	if !metaArgMode {
+		metaArguments = map[string]bool{}
+	}
+
 	metaKeys := []string{}
 	nonMetaKeys := []string{}
 	for k := range keys {
@@ -334,7 +339,10 @@ func sortAttributes(
 
 	for k1 := range keys {
 		key := keys[k1]
-		tempBlock := readBlock(tempFilename1)
+		tempBlock, err := readBlock(tempFilename1)
+		if err != nil {
+			panic(err)
+		}
 		for k2 := range keys {
 			if keys[k1] != keys[k2] {
 				tempBlock.Body().RemoveAttribute(keys[k2])
@@ -346,18 +354,7 @@ func sortAttributes(
 		tempFilename2 := fmt.Sprintf(
 			"%s/%d-%s-%s.hcl", ctx.tempDir, num(ctx), block.Type(), key)
 		writeBlock(tempFilename2, tempBlock)
-		open, err := os.Open(tempFilename2)
-		if err != nil {
-			panic(err)
-		}
-		s := bufio.NewScanner(open)
-		s.Split(bufio.ScanLines)
-		lines2 := []string{}
-		for s.Scan() {
-			text := s.Text()
-			lines2 = append(lines2, text)
-		}
-
+		lines2 := readLines(tempFilename2)
 		isMultiLine := checkIfMultiline(lines2)
 		_, metaKey := metaArguments[key]
 		if isMultiLine {
@@ -395,7 +392,10 @@ func sortAttributes(
 			}
 		}
 
-		tempBlock := readBlock(tempFilename1)
+		tempBlock, err := readBlock(tempFilename1)
+		if err != nil {
+			panic(err)
+		}
 		for k2 := range keys {
 			if keys[k1] != keys[k2] {
 				tempBlock.Body().RemoveAttribute(keys[k2])
@@ -407,21 +407,50 @@ func sortAttributes(
 			"%s/%d-%s-%s.hcl", ctx.tempDir, num(ctx), block.Type(), key)
 
 		writeBlock(tempFilename2, tempBlock)
-
-		open, err := os.Open(tempFilename2)
-		if err != nil {
-			panic(err)
-		}
-		s := bufio.NewScanner(open)
-		s.Split(bufio.ScanLines)
-		lines2 := []string{}
-		for s.Scan() {
-			text := s.Text()
-			lines2 = append(lines2, text)
-		}
-
+		lines2 := readLines(tempFilename2)
 		lenLines2 := len(lines2)
 		isMultiLine := checkIfMultiline(lines2)
+
+		if isMultiLine {
+			for n := range lines2 {
+				line := lines2[n]
+				if strings.HasPrefix(strings.TrimLeft(line, " "), fmt.Sprintf("%s = ", key)) {
+					if strings.HasSuffix(line, "= {") {
+						body := []string{"map {"}
+						body = append(body, lines2[n+1:]...)
+						body = body[:len(body)-2]
+						body = append(body, "}")
+						tempFilename3 := fmt.Sprintf(
+							"%s/%d-%s-%s.hcl", ctx.tempDir, num(ctx), block.Type(), key)
+						writeLines(tempFilename3, body)
+						mapBlock, err := readBlock(tempFilename3)
+						if err != nil {
+							panic(err)
+						}
+						mapBlock = rewriteBlock(ctx, mapBlock, false)
+						tempFilename4 := fmt.Sprintf(
+							"%s/%d-%s-%s.hcl", ctx.tempDir, num(ctx), block.Type(), key)
+						writeBlock(tempFilename4, mapBlock)
+						body = readLines(tempFilename4)
+						body = append(lines2[:n+1], body[1:]...)
+						body = body[:len(body)-1]
+						tempFilename5 := fmt.Sprintf(
+							"%s/%d-%s-%s.hcl", ctx.tempDir, num(ctx), block.Type(), key)
+						body = append(body, lines2[lenLines2-2])
+						body = append(body, "}")
+						writeLines(tempFilename5, body)
+						mapBlock, err = readBlock(tempFilename5)
+						if err == nil {
+							tempFilename6 := fmt.Sprintf(
+								"%s/%d-%s-%s.hcl", ctx.tempDir, num(ctx), block.Type(), key)
+							writeBlock(tempFilename6, mapBlock)
+							lines2 = readLines(tempFilename6)
+							lenLines2 = len(lines2)
+						}
+					}
+				}
+			}
+		}
 
 		if hasProcessedOneKey {
 			if isMultiLine {
@@ -445,9 +474,29 @@ func sortAttributes(
 	tempFilename3 := fmt.Sprintf(
 		"%s/%d-put-%s.hcl", ctx.tempDir, num(ctx), block.Type())
 	writeLines(tempFilename3, lines)
-	block = readBlock(tempFilename3)
-	writeDebugBlock(ctx, "get", block)
+	block, err = readBlock(tempFilename3)
+	if err != nil {
+		panic(err)
+	}
+	if strings.HasSuffix(ctx.version, "-0") {
+		writeDebugBlock(ctx, "get", block)
+	}
 	return block
+}
+
+func readLines(filename string) []string {
+	open, err := os.Open(filename)
+	if err != nil {
+		panic(err)
+	}
+	s := bufio.NewScanner(open)
+	s.Split(bufio.ScanLines)
+	lines := []string{}
+	for s.Scan() {
+		text := s.Text()
+		lines = append(lines, text)
+	}
+	return lines
 }
 
 func checkIfMultiline(lines2 []string) bool {
@@ -559,7 +608,11 @@ func cleanBlock(ctx *context,
 		"%s/%d-%s.hcl", ctx.tempDir, num(ctx), tempName)
 
 	writeLines(tempFilename2, lines)
-	return readBlock(tempFilename2)
+	block, err = readBlock(tempFilename2)
+	if err != nil {
+		panic(err)
+	}
+	return block
 }
 
 func writeLines(filename string, lines []string) {
@@ -577,16 +630,16 @@ func writeLines(filename string, lines []string) {
 	writer.Flush()
 }
 
-func readBlock(filename string) *hclwrite.Block {
+func readBlock(filename string) (*hclwrite.Block, error) {
 	fileBytes, err := os.ReadFile(filename)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 	file, diag := hclwrite.ParseConfig(fileBytes, filename, hcl.InitialPos)
 	if diag.HasErrors() {
-		panic(diag.Error())
+		return nil, errors.New("unparseable")
 	}
-	return file.Body().Blocks()[0]
+	return file.Body().Blocks()[0], err
 }
 
 func writeTfFile(ctx *context, filename string, blocks []*hclwrite.Block) {
@@ -609,7 +662,7 @@ func writeTfFile(ctx *context, filename string, blocks []*hclwrite.Block) {
 	} else {
 		file := hclwrite.NewFile()
 
-		blocks = rewriteBlocks(ctx, blocks)
+		blocks = rewriteBlocks(ctx, blocks, true)
 
 		len := len(blocks)
 		body := file.Body()
