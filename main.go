@@ -20,8 +20,8 @@ import (
 type context struct {
 	exit      int
 	level     int
-	num       int
 	main      []*hclwrite.Block
+	num       int
 	outputs   []*hclwrite.Block
 	providers []*hclwrite.Block
 	tempDir   string
@@ -31,7 +31,7 @@ type context struct {
 }
 
 func main() {
-	ctx1 := context{version: "0.0.20"}
+	ctx1 := context{version: "0.0.21"}
 	handleOptions(ctx1.version)
 
 	run(&ctx1)
@@ -340,7 +340,9 @@ func sortAttributes(
 				tempBlock.Body().RemoveAttribute(keys[k2])
 			}
 		}
+
 		tempBlock = cleanBlock(ctx, tempBlock)
+
 		tempFilename2 := fmt.Sprintf(
 			"%s/%d-%s-%s.hcl", ctx.tempDir, num(ctx), block.Type(), key)
 		writeBlock(tempFilename2, tempBlock)
@@ -355,18 +357,8 @@ func sortAttributes(
 			text := s.Text()
 			lines2 = append(lines2, text)
 		}
-		lenLines2 := len(lines2)
-		testLine := lines2[lenLines2-2]
-		test := strings.Fields(testLine)
-		isMultiLine := false
-		if len(test) > 1 {
-			if test[1] != "=" {
-				isMultiLine = true
-			}
-		} else {
-			isMultiLine = true
-		}
 
+		isMultiLine := checkIfMultiline(lines2)
 		_, metaKey := metaArguments[key]
 		if isMultiLine {
 			if metaKey {
@@ -429,17 +421,7 @@ func sortAttributes(
 		}
 
 		lenLines2 := len(lines2)
-		testLine := lines2[lenLines2-2]
-		test := strings.Fields(testLine)
-
-		isMultiLine := false
-		if len(test) > 1 {
-			if test[1] != "=" {
-				isMultiLine = true
-			}
-		} else {
-			isMultiLine = true
-		}
+		isMultiLine := checkIfMultiline(lines2)
 
 		if hasProcessedOneKey {
 			if isMultiLine {
@@ -466,6 +448,24 @@ func sortAttributes(
 	block = readBlock(tempFilename3)
 	writeDebugBlock(ctx, "get", block)
 	return block
+}
+
+func checkIfMultiline(lines2 []string) bool {
+	lenLines2 := len(lines2)
+	testLine1 := lines2[lenLines2-2]
+	testLine2 := strings.TrimLeft(lines2[lenLines2-3], " ")
+	test1 := strings.Fields(testLine1)
+	isMultiLine := false
+	if len(test1) > 1 {
+		if test1[1] == "=" {
+			isMultiLine = strings.HasPrefix(testLine2, "#")
+		} else {
+			isMultiLine = true
+		}
+	} else {
+		isMultiLine = true
+	}
+	return isMultiLine
 }
 
 func writeDebugBlock(ctx *context, desc string, block *hclwrite.Block) {
@@ -495,6 +495,10 @@ func writeBlock(filename string, block *hclwrite.Block) {
 	}
 }
 
+// Cleans a block by writing to a file, processing, and then rereading.
+//
+// We remove comment lines that are at the end of the block because these cause
+// problems with other areas of parsing.
 func cleanBlock(ctx *context,
 	block *hclwrite.Block) *hclwrite.Block {
 
@@ -526,8 +530,19 @@ func cleanBlock(ctx *context,
 	lenLines := len(lines)
 	newLines := []string{}
 	mode = 0
+	strippingComments := true
 	for line := range lines {
 		text := lines[lenLines-1-line]
+		if strippingComments {
+			trimmedText := strings.TrimLeft(text, " ")
+			if strings.HasPrefix(trimmedText, "#") {
+				text = ""
+			} else {
+				if trimmedText != "}" {
+					strippingComments = false
+				}
+			}
+		}
 		if text != "" || mode > 1 {
 			newLines = append(newLines, text)
 		}
@@ -571,8 +586,7 @@ func readBlock(filename string) *hclwrite.Block {
 	if diag.HasErrors() {
 		panic(diag.Error())
 	}
-	block := file.Body().Blocks()[0]
-	return block
+	return file.Body().Blocks()[0]
 }
 
 func writeTfFile(ctx *context, filename string, blocks []*hclwrite.Block) {
