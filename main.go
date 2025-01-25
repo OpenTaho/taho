@@ -31,7 +31,7 @@ type context struct {
 }
 
 func main() {
-	ctx1 := context{version: "0.0.22"}
+	ctx1 := context{version: "0.0.23"}
 	handleOptions(ctx1.version)
 
 	run(&ctx1)
@@ -424,28 +424,27 @@ func sortAttributes(
 							"%s/%d-%s-%s.hcl", ctx.tempDir, num(ctx), block.Type(), key)
 						writeLines(tempFilename3, body)
 						mapBlock, err := readBlock(tempFilename3)
-						if err != nil {
-							panic(err)
-						}
-						mapBlock = rewriteBlock(ctx, mapBlock, false)
-						tempFilename4 := fmt.Sprintf(
-							"%s/%d-%s-%s.hcl", ctx.tempDir, num(ctx), block.Type(), key)
-						writeBlock(tempFilename4, mapBlock)
-						body = readLines(tempFilename4)
-						body = append(lines2[:n+1], body[1:]...)
-						body = body[:len(body)-1]
-						tempFilename5 := fmt.Sprintf(
-							"%s/%d-%s-%s.hcl", ctx.tempDir, num(ctx), block.Type(), key)
-						body = append(body, lines2[lenLines2-2])
-						body = append(body, "}")
-						writeLines(tempFilename5, body)
-						mapBlock, err = readBlock(tempFilename5)
 						if err == nil {
-							tempFilename6 := fmt.Sprintf(
+							mapBlock = rewriteBlock(ctx, mapBlock, false)
+							tempFilename4 := fmt.Sprintf(
 								"%s/%d-%s-%s.hcl", ctx.tempDir, num(ctx), block.Type(), key)
-							writeBlock(tempFilename6, mapBlock)
-							lines2 = readLines(tempFilename6)
-							lenLines2 = len(lines2)
+							writeBlock(tempFilename4, mapBlock)
+							body = readLines(tempFilename4)
+							body = append(lines2[:n+1], body[1:]...)
+							body = body[:len(body)-1]
+							tempFilename5 := fmt.Sprintf(
+								"%s/%d-%s-%s.hcl", ctx.tempDir, num(ctx), block.Type(), key)
+							body = append(body, lines2[lenLines2-2])
+							body = append(body, "}")
+							writeLines(tempFilename5, body)
+							mapBlock, err = readBlock(tempFilename5)
+							if err == nil {
+								tempFilename6 := fmt.Sprintf(
+									"%s/%d-%s-%s.hcl", ctx.tempDir, num(ctx), block.Type(), key)
+								writeBlock(tempFilename6, mapBlock)
+								lines2 = readLines(tempFilename6)
+								lenLines2 = len(lines2)
+							}
 						}
 					}
 				}
