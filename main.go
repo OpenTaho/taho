@@ -31,7 +31,7 @@ type context struct {
 }
 
 func main() {
-	ctx1 := context{version: "0.0.23"}
+	ctx1 := context{version: "0.0.24"}
 	handleOptions(ctx1.version)
 
 	run(&ctx1)
@@ -473,12 +473,12 @@ func sortAttributes(
 	tempFilename3 := fmt.Sprintf(
 		"%s/%d-put-%s.hcl", ctx.tempDir, num(ctx), block.Type())
 	writeLines(tempFilename3, lines)
-	block, err = readBlock(tempFilename3)
-	if err != nil {
-		panic(err)
-	}
-	if strings.HasSuffix(ctx.version, "-0") {
-		writeDebugBlock(ctx, "get", block)
+	rewrittenBlock, err := readBlock(tempFilename3)
+	if err == nil {
+		block = rewrittenBlock
+		if strings.HasSuffix(ctx.version, "-0") {
+			writeDebugBlock(ctx, "get", block)
+		}
 	}
 	return block
 }
