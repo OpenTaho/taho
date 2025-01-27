@@ -17,6 +17,8 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
+const version = "0.0.25"
+
 type context struct {
 	exit      int
 	level     int
@@ -30,8 +32,59 @@ type context struct {
 	version   string
 }
 
+// Get the keys for attributes in the block
+func getKeys(block *hclwrite.Block) []string {
+	keys := []string{}
+	for key := range maps.Keys(block.Body().Attributes()) {
+		keys = append(keys, key)
+	}
+	return keys
+}
+
+func getTypeAndLabels(newBlock *hclwrite.Block) string {
+	typeAndLabels := newBlock.Type()
+	labels := newBlock.Labels()
+	for n := range labels {
+		typeAndLabels += fmt.Sprintf(".%s", labels[n])
+	}
+	return typeAndLabels
+}
+
+// Handle command line options
+func handleOptions(version string) {
+	if len(os.Args[1:]) > 0 {
+		if os.Args[1:][0] == "-v" || os.Args[1:][0] == "--version" {
+			fmt.Println(version)
+			os.Exit(0)
+		} else {
+			panic("Invalid parameter")
+		}
+	}
+}
+
+// Test if an array of lines fro a block is a multiline attribute.
+//
+// If the array of lines has a non-comment line size that equals 3 it is a
+// a single line attribute.
+func ifMultiline(lines []string) bool {
+	size := 0
+	for n := range lines {
+		if !strings.HasPrefix(lines[n], "#") {
+			size++
+		}
+	}
+	return size != 3
+}
+
+// Run this program up to three times.
+//
+// We consider the result successful if running the program does not create a
+// change in the terraform files.
+//
+// In some cases, the program needs to run multiple times due to changes that
+// define a state that needs subsequent changes.
 func main() {
-	ctx1 := context{version: "0.0.24"}
+	ctx1 := context{version: version}
 	handleOptions(ctx1.version)
 
 	run(&ctx1)
@@ -41,7 +94,6 @@ func main() {
 		run(&ctx2)
 		if ctx2.exit != 0 {
 			ctx1.exit = 2
-
 			ctx3 := context{}
 			ctx3.level = ctx2.level + 1
 			run(&ctx3)
@@ -54,6 +106,222 @@ func main() {
 	os.Exit(ctx1.exit)
 }
 
+func num(ctx *context) int {
+	ctx.num++
+	return ctx.num
+}
+
+func readBlock(filename string) (*hclwrite.Block, error) {
+	fileBytes, err := os.ReadFile(filename)
+	if err != nil {
+		return nil, err
+	}
+	file, diag := hclwrite.ParseConfig(fileBytes, filename, hcl.InitialPos)
+	if diag.HasErrors() {
+		return nil, errors.New("unparseable")
+	}
+	return file.Body().Blocks()[0], err
+}
+
+func readBlockX(temp string) *hclwrite.Block {
+	tempBlock, err := readBlock(temp)
+	if err != nil {
+		panic(err)
+	}
+	return tempBlock
+}
+
+func readLines(filename string, stopPrefix string) ([]string, int) {
+	lines := []string{}
+	open, err := os.Open(filename)
+	if err != nil {
+		panic(err)
+	}
+	s := bufio.NewScanner(open)
+	s.Split(bufio.ScanLines)
+	for s.Scan() {
+		text := s.Text()
+		lines = append(lines, text)
+		if !strings.HasPrefix(text, stopPrefix) {
+			break
+		}
+	}
+	start := len(lines) - 1
+	return lines, start
+}
+
+// We remove comment lines that are at the end of the block because these cause
+// problems with other areas of parsing.
+func removeTrailingComments(ctx *context,
+	block *hclwrite.Block) *hclwrite.Block {
+
+	temp := writeBlock(ctx, block)
+	open, err := os.Open(temp)
+	if err != nil {
+		panic(err)
+	}
+	s := bufio.NewScanner(open)
+	s.Split(bufio.ScanLines)
+	lines := []string{}
+	mode := 0
+	for s.Scan() {
+		text := s.Text()
+		if text != "" || mode > 1 {
+			lines = append(lines, text)
+			mode++
+		}
+	}
+	lenLines := len(lines)
+	newLines := []string{}
+	mode = 0
+	strippingComments := true
+	for line := range lines {
+		text := lines[lenLines-1-line]
+		if strippingComments {
+			trimmedText := strings.TrimLeft(text, " ")
+			if strings.HasPrefix(trimmedText, "#") {
+				text = ""
+			} else {
+				if trimmedText != "}" {
+					strippingComments = false
+				}
+			}
+		}
+		if text != "" || mode > 1 {
+			newLines = append(newLines, text)
+		}
+	}
+
+	lines = []string{}
+	lenNewLines := len(newLines)
+	for line := range newLines {
+		text := newLines[lenNewLines-1-line]
+		lines = append(lines, text)
+	}
+
+	temp = fmt.Sprintf("%s/%d.hcl", ctx.tempDir, num(ctx))
+	writeLines(temp, lines)
+	block, err = readBlock(temp)
+	if err != nil {
+		panic(err)
+	}
+	return block
+}
+
+func rewriteBlock(
+	ctx *context, block *hclwrite.Block,
+	metaArgMode bool) *hclwrite.Block {
+
+	detatchedNestedBlocks := make([]*hclwrite.Block, 0)
+	bodyBlocks := block.Body().Blocks()
+	lenBodyBlocks := len(bodyBlocks)
+	blockTypes := []string{}
+	for b := range bodyBlocks {
+		newBlock := hclwrite.NewBlock(block.Type(), block.Labels())
+		movedBlock := bodyBlocks[lenBodyBlocks-1-b]
+		newBlock.Body().AppendBlock(movedBlock)
+		block.Body().RemoveBlock(movedBlock)
+		typeAndLabels := getTypeAndLabels(movedBlock)
+		blockTypes = append(blockTypes, typeAndLabels)
+		detatchedNestedBlocks = append(detatchedNestedBlocks, newBlock)
+	}
+
+	slices.Sort(blockTypes)
+	blockTypes = slices.Compact(blockTypes)
+
+	lastBlockTypes := len(blockTypes) - 1
+	for b := range blockTypes {
+		if b < lastBlockTypes {
+			if blockTypes[b] == "lifecycle" {
+				blockTypes[b] = blockTypes[b+1]
+				blockTypes[b+1] = "lifecycle"
+			}
+		}
+	}
+
+	block = removeTrailingComments(ctx, block)
+	block = sortAttributes(ctx, block, metaArgMode)
+
+	keys := getKeys(block)
+	newLineNeeded := len(keys) > 0
+
+	lenNestedBlocks := len(detatchedNestedBlocks)
+	blockBody := block.Body()
+
+	for n := range blockTypes {
+		orderedBlockType := blockTypes[n]
+		for b := range detatchedNestedBlocks {
+			detachedBlock := detatchedNestedBlocks[lenNestedBlocks-1-b]
+			tempBlock := removeTrailingComments(ctx, detachedBlock)
+			tempBlocks := tempBlock.Body().Blocks()
+			for tbb := range tempBlocks {
+				nestedBlock := tempBlocks[tbb]
+				typeAndLabels := getTypeAndLabels(nestedBlock)
+				if typeAndLabels == orderedBlockType {
+					if newLineNeeded {
+						blockBody.AppendNewline()
+					}
+					nestedBlock = rewriteBlock(ctx, nestedBlock, metaArgMode)
+					blockBody.AppendBlock(nestedBlock)
+					newLineNeeded = true
+				}
+			}
+		}
+	}
+
+	return block
+}
+
+func rewriteBlocks(ctx *context, blocks []*hclwrite.Block,
+	metaArgMode bool) []*hclwrite.Block {
+
+	blockCmp := func(a *hclwrite.Block, b *hclwrite.Block) int {
+		typeOrder := cmp.Compare(a.Type(), b.Type())
+		if typeOrder != 0 {
+			return typeOrder
+		}
+
+		aLabel0 := ""
+		aLabels := a.Labels()
+		if len(aLabels) > 0 {
+			aLabel0 = aLabels[0]
+		}
+
+		bLabels := b.Labels()
+		bLabel0 := ""
+		if len(bLabels) > 0 {
+			bLabel0 = bLabels[0]
+		}
+		label0Order := cmp.Compare(aLabel0, bLabel0)
+		if label0Order != 0 {
+			return label0Order
+		}
+
+		aLabel1 := ""
+		bLabel1 := ""
+		if len(aLabels) > 1 {
+			aLabel1 = aLabels[1]
+		}
+
+		if len(bLabels) > 1 {
+			bLabel1 = bLabels[1]
+		}
+		return cmp.Compare(aLabel1, bLabel1)
+	}
+
+	slices.SortFunc(blocks, blockCmp)
+
+	newBlocks := make([]*hclwrite.Block, 0)
+	for b := range blocks {
+		block := blocks[b]
+		block = rewriteBlock(ctx, block, metaArgMode)
+		newBlocks = append(newBlocks, block)
+	}
+
+	return newBlocks
+}
+
+// Run the program once.
 func run(ctx *context) {
 	entries, err := os.ReadDir("./")
 	if err != nil {
@@ -191,137 +459,12 @@ func run(ctx *context) {
 	}
 }
 
-func rewriteBlocks(ctx *context, blocks []*hclwrite.Block,
-	metaArgMode bool) []*hclwrite.Block {
-
-	blockCmp := func(a *hclwrite.Block, b *hclwrite.Block) int {
-		typeOrder := cmp.Compare(a.Type(), b.Type())
-		if typeOrder != 0 {
-			return typeOrder
-		}
-
-		aLabel0 := ""
-		aLabels := a.Labels()
-		if len(aLabels) > 0 {
-			aLabel0 = aLabels[0]
-		}
-
-		bLabels := b.Labels()
-		bLabel0 := ""
-		if len(bLabels) > 0 {
-			bLabel0 = bLabels[0]
-		}
-		label0Order := cmp.Compare(aLabel0, bLabel0)
-		if label0Order != 0 {
-			return label0Order
-		}
-
-		aLabel1 := ""
-		bLabel1 := ""
-		if len(aLabels) > 1 {
-			aLabel1 = aLabels[1]
-		}
-
-		if len(bLabels) > 1 {
-			bLabel1 = bLabels[1]
-		}
-		return cmp.Compare(aLabel1, bLabel1)
-	}
-
-	slices.SortFunc(blocks, blockCmp)
-
-	newBlocks := make([]*hclwrite.Block, 0)
-	for b := range blocks {
-		block := blocks[b]
-		block = rewriteBlock(ctx, block, metaArgMode)
-		newBlocks = append(newBlocks, block)
-	}
-
-	return newBlocks
-}
-
-func rewriteBlock(
-	ctx *context, block *hclwrite.Block,
-	metaArgMode bool) *hclwrite.Block {
-
-	detatchedNestedBlocks := make([]*hclwrite.Block, 0)
-	bodyBlocks := block.Body().Blocks()
-	lenBodyBlocks := len(bodyBlocks)
-	for b := range bodyBlocks {
-		newBlock := hclwrite.NewBlock(block.Type(), block.Labels())
-		movedBlock := bodyBlocks[lenBodyBlocks-1-b]
-		newBlock.Body().AppendBlock(movedBlock)
-		block.Body().RemoveBlock(movedBlock)
-		detatchedNestedBlocks = append(detatchedNestedBlocks, newBlock)
-	}
-
-	block = cleanBlock(ctx, block)
-	block = sortAttributes(ctx, block, metaArgMode)
-
-	keys := getAttributeKeys(block)
-	newLineNeeded := len(keys) > 0
-	lenTempBlocks := len(detatchedNestedBlocks)
-	blockBody := block.Body()
-	for b := range detatchedNestedBlocks {
-		tempBlock := cleanBlock(ctx, detatchedNestedBlocks[lenTempBlocks-1-b])
-		tempBlocks := tempBlock.Body().Blocks()
-		for tbb := range tempBlocks {
-			if newLineNeeded {
-				blockBody.AppendNewline()
-			}
-			nestedBlock := tempBlocks[tbb]
-			nestedBlock = rewriteBlock(ctx, nestedBlock, metaArgMode)
-			blockBody.AppendBlock(nestedBlock)
-			newLineNeeded = true
-		}
-	}
-
-	return block
-}
-
-func sortAttributes(
-	ctx *context, block *hclwrite.Block, metaArgMode bool) *hclwrite.Block {
-
-	tempFilename1 := fmt.Sprintf(
-		"%s/%d-%s.hcl", ctx.tempDir, num(ctx), block.Type())
-	writeBlock(tempFilename1, block)
-
-	keys := getAttributeKeys(block)
+func sortAttributeKeys(keys []string, metaArguments map[string]bool) []string {
 	slices.Sort(keys)
-
-	lines := []string{}
-	open, err := os.Open(tempFilename1)
-	if err != nil {
-		panic(err)
-	}
-
-	s := bufio.NewScanner(open)
-	s.Split(bufio.ScanLines)
-	for s.Scan() {
-		text := s.Text()
-		lines = append(lines, text)
-		if !strings.HasPrefix(text, "#") {
-			break
-		}
-	}
-	start := len(lines) - 1
-
-	metaArguments := map[string]bool{
-		"count":      true,
-		"depends_on": true,
-		"for_each":   true,
-		"source":     true,
-	}
-
-	if !metaArgMode {
-		metaArguments = map[string]bool{}
-	}
-
 	metaKeys := []string{}
 	nonMetaKeys := []string{}
 	for k := range keys {
 		key := keys[k]
-
 		_, metaArgument := metaArguments[key]
 		if metaArgument {
 			metaKeys = append(metaKeys, key)
@@ -329,8 +472,30 @@ func sortAttributes(
 			nonMetaKeys = append(nonMetaKeys, key)
 		}
 	}
-
 	keys = append(metaKeys, nonMetaKeys...)
+	return keys
+}
+
+func sortAttributes(
+	ctx *context, block *hclwrite.Block, metaArgMode bool) *hclwrite.Block {
+
+	metaArguments := map[string]bool{
+		"count":      true,
+		"depends_on": true,
+		"for_each":   true,
+		"provider":   true,
+		"source":     true,
+	}
+
+	if !metaArgMode {
+		metaArguments = map[string]bool{}
+	}
+
+	keys := getKeys(block)
+	keys = sortAttributeKeys(keys, metaArguments)
+
+	temp := writeBlock(ctx, block)
+	lines, start := readLines(temp, "#")
 
 	multiLineKeys := []string{}
 	multiLineMetaKeys := []string{}
@@ -339,23 +504,17 @@ func sortAttributes(
 
 	for k1 := range keys {
 		key := keys[k1]
-		tempBlock, err := readBlock(tempFilename1)
-		if err != nil {
-			panic(err)
-		}
+		tempBlock := readBlockX(temp)
 		for k2 := range keys {
 			if keys[k1] != keys[k2] {
 				tempBlock.Body().RemoveAttribute(keys[k2])
 			}
 		}
 
-		tempBlock = cleanBlock(ctx, tempBlock)
+		tempBlock = removeTrailingComments(ctx, tempBlock)
 
-		tempFilename2 := fmt.Sprintf(
-			"%s/%d-%s-%s.hcl", ctx.tempDir, num(ctx), block.Type(), key)
-		writeBlock(tempFilename2, tempBlock)
-		lines2 := readLines(tempFilename2)
-		isMultiLine := checkIfMultiline(lines2)
+		lines2, _ := readLines(writeBlock(ctx, tempBlock), "")
+		isMultiLine := ifMultiline(lines2)
 		_, metaKey := metaArguments[key]
 		if isMultiLine {
 			if metaKey {
@@ -392,7 +551,7 @@ func sortAttributes(
 			}
 		}
 
-		tempBlock, err := readBlock(tempFilename1)
+		tempBlock, err := readBlock(temp)
 		if err != nil {
 			panic(err)
 		}
@@ -401,48 +560,39 @@ func sortAttributes(
 				tempBlock.Body().RemoveAttribute(keys[k2])
 			}
 		}
-		tempBlock = cleanBlock(ctx, tempBlock)
+		tempBlock = removeTrailingComments(ctx, tempBlock)
 
-		tempFilename2 := fmt.Sprintf(
-			"%s/%d-%s-%s.hcl", ctx.tempDir, num(ctx), block.Type(), key)
-
-		writeBlock(tempFilename2, tempBlock)
-		lines2 := readLines(tempFilename2)
+		lines2, _ := readLines(writeBlock(ctx, tempBlock), "")
 		lenLines2 := len(lines2)
-		isMultiLine := checkIfMultiline(lines2)
+		isMultiLine := ifMultiline(lines2)
 
 		if isMultiLine {
 			for n := range lines2 {
 				line := lines2[n]
-				if strings.HasPrefix(strings.TrimLeft(line, " "), fmt.Sprintf("%s = ", key)) {
+
+				if strings.HasPrefix(strings.TrimLeft(line, " "),
+					fmt.Sprintf("%s = ", key)) {
+
 					if strings.HasSuffix(line, "= {") {
 						body := []string{"map {"}
 						body = append(body, lines2[n+1:]...)
 						body = body[:len(body)-2]
 						body = append(body, "}")
-						tempFilename3 := fmt.Sprintf(
-							"%s/%d-%s-%s.hcl", ctx.tempDir, num(ctx), block.Type(), key)
-						writeLines(tempFilename3, body)
-						mapBlock, err := readBlock(tempFilename3)
+						temp3 := fmt.Sprintf("%s/%d.hcl", ctx.tempDir, num(ctx))
+						writeLines(temp3, body)
+						mapBlock, err := readBlock(temp3)
 						if err == nil {
 							mapBlock = rewriteBlock(ctx, mapBlock, false)
-							tempFilename4 := fmt.Sprintf(
-								"%s/%d-%s-%s.hcl", ctx.tempDir, num(ctx), block.Type(), key)
-							writeBlock(tempFilename4, mapBlock)
-							body = readLines(tempFilename4)
+							body, _ = readLines(writeBlock(ctx, mapBlock), "")
 							body = append(lines2[:n+1], body[1:]...)
 							body = body[:len(body)-1]
-							tempFilename5 := fmt.Sprintf(
-								"%s/%d-%s-%s.hcl", ctx.tempDir, num(ctx), block.Type(), key)
+							temp5 := fmt.Sprintf("%s/%d.hcl", ctx.tempDir, num(ctx))
 							body = append(body, lines2[lenLines2-2])
 							body = append(body, "}")
-							writeLines(tempFilename5, body)
-							mapBlock, err = readBlock(tempFilename5)
+							writeLines(temp5, body)
+							mapBlock, err = readBlock(temp5)
 							if err == nil {
-								tempFilename6 := fmt.Sprintf(
-									"%s/%d-%s-%s.hcl", ctx.tempDir, num(ctx), block.Type(), key)
-								writeBlock(tempFilename6, mapBlock)
-								lines2 = readLines(tempFilename6)
+								lines2, _ = readLines(writeBlock(ctx, mapBlock), "")
 								lenLines2 = len(lines2)
 							}
 						}
@@ -470,65 +620,17 @@ func sortAttributes(
 		lines = append(lines, "}")
 	}
 
-	tempFilename3 := fmt.Sprintf(
-		"%s/%d-put-%s.hcl", ctx.tempDir, num(ctx), block.Type())
-	writeLines(tempFilename3, lines)
-	rewrittenBlock, err := readBlock(tempFilename3)
+	temp3 := fmt.Sprintf("%s/%d.hcl", ctx.tempDir, num(ctx))
+	writeLines(temp3, lines)
+	rewrittenBlock, err := readBlock(temp3)
 	if err == nil {
 		block = rewrittenBlock
-		if strings.HasSuffix(ctx.version, "-0") {
-			writeDebugBlock(ctx, "get", block)
-		}
 	}
 	return block
 }
 
-func readLines(filename string) []string {
-	open, err := os.Open(filename)
-	if err != nil {
-		panic(err)
-	}
-	s := bufio.NewScanner(open)
-	s.Split(bufio.ScanLines)
-	lines := []string{}
-	for s.Scan() {
-		text := s.Text()
-		lines = append(lines, text)
-	}
-	return lines
-}
-
-func checkIfMultiline(lines2 []string) bool {
-	lenLines2 := len(lines2)
-	testLine1 := lines2[lenLines2-2]
-	testLine2 := strings.TrimLeft(lines2[lenLines2-3], " ")
-	test1 := strings.Fields(testLine1)
-	isMultiLine := false
-	if len(test1) > 1 {
-		if test1[1] == "=" {
-			isMultiLine = strings.HasPrefix(testLine2, "#")
-		} else {
-			isMultiLine = true
-		}
-	} else {
-		isMultiLine = true
-	}
-	return isMultiLine
-}
-
-func writeDebugBlock(ctx *context, desc string, block *hclwrite.Block) {
-	writeBlock(fmt.Sprintf("%s/%d-debug-%s.hcl", ctx.tempDir, num(ctx), desc), block)
-}
-
-func getAttributeKeys(block *hclwrite.Block) []string {
-	keys := []string{}
-	for key := range maps.Keys(block.Body().Attributes()) {
-		keys = append(keys, key)
-	}
-	return keys
-}
-
-func writeBlock(filename string, block *hclwrite.Block) {
+func writeBlock(ctx *context, block *hclwrite.Block) string {
+	temp := fmt.Sprintf("%s/%d.hcl", ctx.tempDir, num(ctx))
 	tempName := block.Type()
 	tempFile := hclwrite.NewFile()
 	tempFile.Body().AppendBlock(block)
@@ -537,81 +639,11 @@ func writeBlock(filename string, block *hclwrite.Block) {
 	for i := range labels {
 		tempName += fmt.Sprintf("-%s", labels[i])
 	}
-	errW := os.WriteFile(filename, tempBytes, 0644)
+	errW := os.WriteFile(temp, tempBytes, 0644)
 	if errW != nil {
 		panic(errW)
 	}
-}
-
-// Cleans a block by writing to a file, processing, and then rereading.
-//
-// We remove comment lines that are at the end of the block because these cause
-// problems with other areas of parsing.
-func cleanBlock(ctx *context,
-	block *hclwrite.Block) *hclwrite.Block {
-
-	tempName := block.Type()
-	labels := block.Labels()
-	for i := range labels {
-		tempName += fmt.Sprintf("-%s", labels[i])
-	}
-
-	tempFilename1 := fmt.Sprintf(
-		"%s/%d-%s.hcl", ctx.tempDir, num(ctx), tempName)
-	writeBlock(tempFilename1, block)
-
-	open, err := os.Open(tempFilename1)
-	if err != nil {
-		panic(err)
-	}
-	s := bufio.NewScanner(open)
-	s.Split(bufio.ScanLines)
-	lines := []string{}
-	mode := 0
-	for s.Scan() {
-		text := s.Text()
-		if text != "" || mode > 1 {
-			lines = append(lines, text)
-			mode++
-		}
-	}
-	lenLines := len(lines)
-	newLines := []string{}
-	mode = 0
-	strippingComments := true
-	for line := range lines {
-		text := lines[lenLines-1-line]
-		if strippingComments {
-			trimmedText := strings.TrimLeft(text, " ")
-			if strings.HasPrefix(trimmedText, "#") {
-				text = ""
-			} else {
-				if trimmedText != "}" {
-					strippingComments = false
-				}
-			}
-		}
-		if text != "" || mode > 1 {
-			newLines = append(newLines, text)
-		}
-	}
-
-	lines = []string{}
-	lenNewLines := len(newLines)
-	for line := range newLines {
-		text := newLines[lenNewLines-1-line]
-		lines = append(lines, text)
-	}
-
-	tempFilename2 := fmt.Sprintf(
-		"%s/%d-%s.hcl", ctx.tempDir, num(ctx), tempName)
-
-	writeLines(tempFilename2, lines)
-	block, err = readBlock(tempFilename2)
-	if err != nil {
-		panic(err)
-	}
-	return block
+	return temp
 }
 
 func writeLines(filename string, lines []string) {
@@ -627,18 +659,6 @@ func writeLines(filename string, lines []string) {
 		writer.WriteString("\n")
 	}
 	writer.Flush()
-}
-
-func readBlock(filename string) (*hclwrite.Block, error) {
-	fileBytes, err := os.ReadFile(filename)
-	if err != nil {
-		return nil, err
-	}
-	file, diag := hclwrite.ParseConfig(fileBytes, filename, hcl.InitialPos)
-	if diag.HasErrors() {
-		return nil, errors.New("unparseable")
-	}
-	return file.Body().Blocks()[0], err
 }
 
 func writeTfFile(ctx *context, filename string, blocks []*hclwrite.Block) {
@@ -685,24 +705,4 @@ func writeTfFile(ctx *context, filename string, blocks []*hclwrite.Block) {
 			panic(err)
 		}
 	}
-}
-
-func handleOptions(version string) {
-	if len(os.Args[1:]) > 0 {
-		handleVersionOption(version)
-	}
-}
-
-func handleVersionOption(version string) {
-	if os.Args[1:][0] == "-v" || os.Args[1:][0] == "--version" {
-		fmt.Println(version)
-		os.Exit(0)
-	} else {
-		panic("Invalid parameter")
-	}
-}
-
-func num(ctx *context) int {
-	ctx.num++
-	return ctx.num
 }
