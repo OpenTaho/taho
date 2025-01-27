@@ -1,4 +1,14 @@
 #!/bin/bash
+set -e
+
+do/check-go-sort
+
+status="$(git status -s)"
+if [ -n "$status" ]; then
+  >&2 echo "ERROR: Unable to release due to git status."
+  >&2 echo "$status"
+  exit 1
+fi
 
 rm -rf release
 mkdir release
