@@ -8,7 +8,7 @@ main() {
     cd tests || exit 1
   fi
 
-  test 00 3ca25d984982495dbdcaecacdeabfc59ce5342d2
+  test 00 67e3f7ab39e5ecca9df22c044cac279836f75922
   test 01 91268ce3a9f4edb082291f5283ecce8fdf6c71d0
   test 02 44373f9b0b1095d02c744f1a9b9e7e7f8995bdb4
   test 03 6422ff9a0533e512f26a33241ec8366266b307bb
@@ -20,6 +20,7 @@ main() {
   test 09 685158988340fdfe0111d6d04d3608c9536c6025
   test 10 8822136238078d2c63554554110f12467faa0062
   test 11 54e34671a0523e9fdb40a1b561744254f16595b8
+  test 12 fd72fbc6e8d9ee358562ae01eb077b3962b17dd1
 }
 
 test() {
@@ -35,8 +36,9 @@ test() {
 
     result1="$(
       (
-        sha1sum ./*.tf
-        sha1sum ./*.md
+        [ ! -e ./main.tfvars ] || sha1sum ./*.tfvars
+        [ ! -e ./main.tf ] || sha1sum ./*.tf
+        [ ! -e ./README.md ] || sha1sum ./*.md
       ) |
       sha1sum |
       sed 's/ .*//'
@@ -49,8 +51,9 @@ test() {
 
     result2="$(
       (
-        sha1sum ./*.tf
-        sha1sum ./*.md
+        [ ! -e ./main.tfvars ] || sha1sum ./*.tfvars
+        [ ! -e ./main.tf ] || sha1sum ./*.tf
+        [ ! -e ./README.md ] || sha1sum ./*.md
       ) |
       sha1sum |
       sed 's/ .*//'
