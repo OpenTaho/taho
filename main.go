@@ -17,9 +17,10 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
-const version = "0.0.25"
+const version = "0.0.26"
 
 type context struct {
+	err       *os.File
 	exit      int
 	level     int
 	main      []*hclwrite.Block
@@ -321,8 +322,42 @@ func rewriteBlocks(ctx *context, blocks []*hclwrite.Block,
 	return newBlocks
 }
 
+func rewriteTfVars(ctx *context, filename string) {
+	lines, _ := readLines(filename, "")
+	mapLines := []string{"map {"}
+	mapLines = append(mapLines, lines...)
+	mapLines = append(mapLines, "}")
+	temp := fmt.Sprintf("%s/%d.hcl", ctx.tempDir, num(ctx))
+	writeLines(temp, mapLines)
+	mapBlock := readBlockX(temp)
+	mapBlock = rewriteBlock(ctx, mapBlock, false)
+	temp = writeBlock(ctx, mapBlock)
+	mapLines, _ = readLines(temp, "")
+	newLines := mapLines[1 : len(mapLines)-1]
+
+	mismatch := false
+	if len(newLines) == len(lines) {
+		for n := range newLines {
+			if newLines[n] != lines[n] {
+				mismatch = true
+				break
+			}
+		}
+	} else {
+		mismatch = true
+	}
+
+	if mismatch {
+		text := fmt.Sprintf("File mismatch: \"%s\"\n", filename)
+		ctx.err.WriteString(text)
+		writeLines(filename, newLines)
+		ctx.exit = 1
+	}
+}
+
 // Run the program once.
 func run(ctx *context) {
+	ctx.err = os.Stderr
 	entries, err := os.ReadDir("./")
 	if err != nil {
 		panic(err)
@@ -352,9 +387,14 @@ func run(ctx *context) {
 		"variables.tf": true,
 	}
 
+	tf := false
+
 	for _, entry := range entries {
 		filename := entry.Name()
-		if strings.HasSuffix(filename, ".tf") {
+		if strings.HasSuffix(filename, ".tfvars") {
+			rewriteTfVars(ctx, filename)
+		} else if strings.HasSuffix(filename, ".tf") {
+			tf = true
 			if !strings.HasPrefix(filename, "_") {
 				_, specialName := specialNames[filename]
 
@@ -405,9 +445,8 @@ func run(ctx *context) {
 
 				if !specialName {
 					if !bytes.Equal(fileBytes, newBytes) {
-						os.Stderr.WriteString(
-							fmt.Sprintf(
-								"File mismatch: \"%s\"\n", filename))
+						text := fmt.Sprintf("File mismatch: \"%s\"\n", filename)
+						ctx.err.WriteString(text)
 						ctx.exit = 1
 					}
 					if len == 0 {
@@ -426,27 +465,29 @@ func run(ctx *context) {
 		}
 	}
 
-	if len(ctx.terraform) == 0 {
-		blockLabels := []string{}
-		newBlock := hclwrite.NewBlock("terraform", blockLabels)
-		newValue := cty.StringVal(">=0.0.1")
-		newBlock.Body().SetAttributeValue("required_version", newValue)
-		ctx.terraform = append(ctx.terraform, newBlock)
-	}
+	if tf {
+		if len(ctx.terraform) == 0 {
+			blockLabels := []string{}
+			newBlock := hclwrite.NewBlock("terraform", blockLabels)
+			newValue := cty.StringVal(">=0.0.1")
+			newBlock.Body().SetAttributeValue("required_version", newValue)
+			ctx.terraform = append(ctx.terraform, newBlock)
+		}
 
-	writeTfFile(ctx, "main.tf", ctx.main)
-	writeTfFile(ctx, "outputs.tf", ctx.outputs)
-	writeTfFile(ctx, "terraform.tf", ctx.terraform)
-	writeTfFile(ctx, "variables.tf", ctx.variables)
+		writeTfFile(ctx, "main.tf", ctx.main)
+		writeTfFile(ctx, "outputs.tf", ctx.outputs)
+		writeTfFile(ctx, "terraform.tf", ctx.terraform)
+		writeTfFile(ctx, "variables.tf", ctx.variables)
 
-	if len(ctx.providers) > 0 {
-		writeTfFile(ctx, "providers.tf", ctx.providers)
-	} else {
-		_, errS := os.Stat("providers.tf")
-		if errS == nil {
-			errR := os.Remove("providers.tf")
-			if errR != nil {
-				panic(errR)
+		if len(ctx.providers) > 0 {
+			writeTfFile(ctx, "providers.tf", ctx.providers)
+		} else {
+			_, errS := os.Stat("providers.tf")
+			if errS == nil {
+				errR := os.Remove("providers.tf")
+				if errR != nil {
+					panic(errR)
+				}
 			}
 		}
 	}
@@ -648,7 +689,7 @@ func writeBlock(ctx *context, block *hclwrite.Block) string {
 
 func writeLines(filename string, lines []string) {
 	openFile, err := os.OpenFile(
-		filename, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
+		filename, os.O_TRUNC|os.O_WRONLY|os.O_CREATE, 0644)
 	if err != nil {
 		panic(err)
 	}
@@ -695,8 +736,8 @@ func writeTfFile(ctx *context, filename string, blocks []*hclwrite.Block) {
 		newBytes := file.Bytes()
 
 		if !bytes.Equal(fileBytes, newBytes) {
-			os.Stderr.WriteString(
-				fmt.Sprintf("Managed file mismatch: \"%s\"\n", filename))
+			text := fmt.Sprintf("Managed file mismatch: \"%s\"\n", filename)
+			ctx.err.WriteString(text)
 			ctx.exit = 1
 		}
 
