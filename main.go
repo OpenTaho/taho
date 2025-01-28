@@ -17,7 +17,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
-const version = "0.0.26"
+const version = "0.0.27"
 
 type context struct {
 	err       *os.File
@@ -334,6 +334,10 @@ func rewriteTfVars(ctx *context, filename string) {
 	temp = writeBlock(ctx, mapBlock)
 	mapLines, _ = readLines(temp, "")
 	newLines := mapLines[1 : len(mapLines)-1]
+
+	for n := range newLines {
+		newLines[n] = strings.TrimPrefix(newLines[n], "  ")
+	}
 
 	mismatch := false
 	if len(newLines) == len(lines) {
