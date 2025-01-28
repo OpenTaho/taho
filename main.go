@@ -17,7 +17,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
-const version = "0.0.28"
+const version = "0.0.29"
 
 type context struct {
 	err       *os.File
@@ -608,10 +608,10 @@ func sortAttributes(
 		tempBlock = removeTrailingComments(ctx, tempBlock)
 
 		lines2, _ := readLines(writeBlock(ctx, tempBlock), "")
-		lenLines2 := len(lines2)
 		isMultiLine := ifMultiline(lines2)
 
 		if isMultiLine {
+			lines4 := []string{}
 			for n := range lines2 {
 				line := lines2[n]
 
@@ -629,21 +629,30 @@ func sortAttributes(
 						if err == nil {
 							mapBlock = rewriteBlock(ctx, mapBlock, false)
 							body, _ = readLines(writeBlock(ctx, mapBlock), "")
-							body = body[1:]
-							body = append(lines2[:n+1], body...)
-							body = body[:len(body)-1]
-							body = append(body, lines2[lenLines2-1])
-							body = append(body, "}")
+							n1 := 0
+							lines3 := []string{}
+							for {
+								lines3 = append(lines3, lines2[n1])
+								n1++
+								if n1 > n {
+									break
+								}
+							}
+							lines3 = append(lines3, body[1:]...)
+							lines3 = append(lines3, "}")
 							temp5 := fmt.Sprintf("%s/%d.hcl", ctx.tempDir, num(ctx))
-							writeLines(temp5, body)
+							writeLines(temp5, lines3)
 							mapBlock, err = readBlock(temp5)
 							if err == nil {
-								lines2, _ = readLines(writeBlock(ctx, mapBlock), "")
-								lenLines2 = len(lines2)
+								lines4, _ = readLines(writeBlock(ctx, mapBlock), "")
 							}
 						}
 					}
 				}
+			}
+
+			if len(lines4) > 0 {
+				lines2 = lines4
 			}
 		}
 
@@ -654,7 +663,7 @@ func sortAttributes(
 		}
 
 		for n := range lines2 {
-			if n > start && n < lenLines2-1 {
+			if n > start && n < len(lines2)-1 {
 				lines = append(lines, lines2[n])
 			}
 		}
