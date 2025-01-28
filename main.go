@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"maps"
 	"os"
+	"os/exec"
 	"slices"
 	"strings"
 
@@ -17,7 +18,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
-const version = "0.0.29"
+const version = "0.0.30"
 
 type context struct {
 	err       *os.File
@@ -324,25 +325,36 @@ func rewriteBlocks(ctx *context, blocks []*hclwrite.Block,
 
 func rewriteTfVars(ctx *context, filename string) {
 	lines, _ := readLines(filename, "")
+
 	mapLines := []string{"map {"}
 	mapLines = append(mapLines, lines...)
 	mapLines = append(mapLines, "}")
-	temp := fmt.Sprintf("%s/%d.hcl", ctx.tempDir, num(ctx))
-	writeLines(temp, mapLines)
-	mapBlock := readBlockX(temp)
+
+	temp1 := fmt.Sprintf("%s/%d.hcl", ctx.tempDir, num(ctx))
+	writeLines(temp1, mapLines)
+	mapBlock := readBlockX(temp1)
 	mapBlock = rewriteBlock(ctx, mapBlock, false)
+
 	temp2 := writeBlock(ctx, mapBlock)
 	mapLines, _ = readLines(temp2, "")
 	newLines := mapLines[1 : len(mapLines)-1]
 
-	for n := range newLines {
-		newLines[n] = strings.TrimPrefix(newLines[n], "  ")
-	}
+	temp3 := fmt.Sprintf("%s/%d.tf", ctx.tempDir, num(ctx))
+	writeLines(temp3, newLines)
+
+	cmd := exec.Command("terraform", "fmt", temp3)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	cmd.Run()
+
+	fmtLines, _ := readLines(temp3, "")
 
 	mismatch := false
-	if len(newLines) == len(lines) {
-		for n := range newLines {
-			if newLines[n] != lines[n] {
+	if len(fmtLines) == len(lines) {
+		for n := range fmtLines {
+			if fmtLines[n] != lines[n] {
 				mismatch = true
 				break
 			}
@@ -354,7 +366,7 @@ func rewriteTfVars(ctx *context, filename string) {
 	if mismatch {
 		text := fmt.Sprintf("File mismatch: \"%s\"\n", filename)
 		ctx.err.WriteString(text)
-		writeLines(filename, newLines)
+		writeLines(filename, fmtLines)
 		ctx.exit = 1
 	}
 }
