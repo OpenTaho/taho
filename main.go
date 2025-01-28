@@ -17,7 +17,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
-const version = "0.0.27"
+const version = "0.0.28"
 
 type context struct {
 	err       *os.File
@@ -331,8 +331,8 @@ func rewriteTfVars(ctx *context, filename string) {
 	writeLines(temp, mapLines)
 	mapBlock := readBlockX(temp)
 	mapBlock = rewriteBlock(ctx, mapBlock, false)
-	temp = writeBlock(ctx, mapBlock)
-	mapLines, _ = readLines(temp, "")
+	temp2 := writeBlock(ctx, mapBlock)
+	mapLines, _ = readLines(temp2, "")
 	newLines := mapLines[1 : len(mapLines)-1]
 
 	for n := range newLines {
@@ -629,11 +629,12 @@ func sortAttributes(
 						if err == nil {
 							mapBlock = rewriteBlock(ctx, mapBlock, false)
 							body, _ = readLines(writeBlock(ctx, mapBlock), "")
-							body = append(lines2[:n+1], body[1:]...)
+							body = body[1:]
+							body = append(lines2[:n+1], body...)
 							body = body[:len(body)-1]
-							temp5 := fmt.Sprintf("%s/%d.hcl", ctx.tempDir, num(ctx))
-							body = append(body, lines2[lenLines2-2])
+							body = append(body, lines2[lenLines2-1])
 							body = append(body, "}")
+							temp5 := fmt.Sprintf("%s/%d.hcl", ctx.tempDir, num(ctx))
 							writeLines(temp5, body)
 							mapBlock, err = readBlock(temp5)
 							if err == nil {
