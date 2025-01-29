@@ -10,6 +10,7 @@ import (
 	"maps"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -18,20 +19,38 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
-const version = "0.0.30"
+const version = "0.0.31"
 
 type context struct {
-	err       *os.File
 	exit      int
 	level     int
 	main      []*hclwrite.Block
 	num       int
+	out       *os.File
 	outputs   []*hclwrite.Block
 	providers []*hclwrite.Block
 	tempDir   string
 	terraform []*hclwrite.Block
 	variables []*hclwrite.Block
 	version   string
+}
+
+func doMain(ctx *context) {
+	run(ctx)
+	if ctx.exit == 1 {
+		ctx1 := context{}
+		ctx1.level = ctx.level + 1
+		run(&ctx1)
+		if ctx1.exit != 0 {
+			ctx.exit = 2
+			ctx2 := context{}
+			ctx2.level = ctx1.level + 1
+			run(&ctx2)
+			if ctx2.exit != 0 {
+				ctx.exit = 3
+			}
+		}
+	}
 }
 
 // Get the keys for attributes in the block
@@ -53,10 +72,67 @@ func getTypeAndLabels(newBlock *hclwrite.Block) string {
 }
 
 // Handle command line options
-func handleOptions(version string) {
+func handleOptions(ctx *context) {
 	if len(os.Args[1:]) > 0 {
 		if os.Args[1:][0] == "-v" || os.Args[1:][0] == "--version" {
 			fmt.Println(version)
+			os.Exit(0)
+		} else if os.Args[1:][0] == "-r" || os.Args[1:][0] == "--recursive" {
+			wd, err := os.Getwd()
+			if err != nil {
+				panic(err)
+			}
+
+			wd += "/"
+
+			list := []string{}
+			err = filepath.WalkDir(".", func(path string, d fs.DirEntry, err error) error {
+				if err != nil {
+					panic(err)
+				}
+				path = wd + path
+				if !strings.Contains(path, "/.") &&
+					!strings.Contains(path, "/_") &&
+					!strings.Contains(path, "/taho/") {
+					if d.IsDir() {
+						list = append(list, path)
+					}
+				}
+				return nil
+			})
+
+			if err != nil {
+				panic(err)
+			}
+
+			for n := range list {
+				path := list[n]
+				err := os.Chdir(path)
+				if isTestable() {
+					if n > 0 {
+						out(ctx, "")
+					}
+					out(ctx, path)
+					if path == "." {
+						path = ""
+					}
+				}
+				if err != nil {
+					panic(err)
+				}
+				newCtx := context{version: version}
+				newCtx.out = ctx.out
+				doMain(&newCtx)
+			}
+		} else if os.Args[1:][0] == "-h" || os.Args[1:][0] == "--help" {
+			fmt.Println(
+				"Usage: taho [options]\n" +
+					"\n" +
+					"Options: are as follows\n" +
+					"\n" +
+					"-v, --version\n" +
+					"-r, --recursive\n" +
+					"-h, --help")
 			os.Exit(0)
 		} else {
 			panic("Invalid parameter")
@@ -64,7 +140,7 @@ func handleOptions(version string) {
 	}
 }
 
-// Test if an array of lines fro a block is a multiline attribute.
+// Check if an array of lines fro a block is a multiline attribute.
 //
 // If the array of lines has a non-comment line size that equals 3 it is a
 // a single line attribute.
@@ -78,6 +154,25 @@ func ifMultiline(lines []string) bool {
 	return size != 3
 }
 
+// Check if the working directory is testable.
+func isTestable() bool {
+	entries, err := os.ReadDir("./")
+	if err != nil {
+		panic(err)
+	}
+
+	for _, entry := range entries {
+		if entry.Type().IsRegular() {
+			name := entry.Name()
+			if strings.HasSuffix(name, ".tf") ||
+				strings.HasSuffix(name, ".tfvars") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // Run this program up to three times.
 //
 // We consider the result successful if running the program does not create a
@@ -86,31 +181,20 @@ func ifMultiline(lines []string) bool {
 // In some cases, the program needs to run multiple times due to changes that
 // define a state that needs subsequent changes.
 func main() {
-	ctx1 := context{version: version}
-	handleOptions(ctx1.version)
-
-	run(&ctx1)
-	if ctx1.exit == 1 {
-		ctx2 := context{}
-		ctx2.level = ctx1.level + 1
-		run(&ctx2)
-		if ctx2.exit != 0 {
-			ctx1.exit = 2
-			ctx3 := context{}
-			ctx3.level = ctx2.level + 1
-			run(&ctx3)
-			if ctx3.exit != 0 {
-				ctx1.exit = 3
-			}
-		}
-	}
-
-	os.Exit(ctx1.exit)
+	ctx := context{version: version}
+	ctx.out = os.Stdout
+	handleOptions(&ctx)
+	doMain(&ctx)
+	os.Exit(ctx.exit)
 }
 
 func num(ctx *context) int {
 	ctx.num++
 	return ctx.num
+}
+
+func out(ctx *context, text string) {
+	ctx.out.WriteString(text + "\n")
 }
 
 func readBlock(filename string) (*hclwrite.Block, error) {
@@ -125,12 +209,12 @@ func readBlock(filename string) (*hclwrite.Block, error) {
 	return file.Body().Blocks()[0], err
 }
 
-func readBlockX(temp string) *hclwrite.Block {
+func readBlockX(temp string) (block *hclwrite.Block, err error) {
 	tempBlock, err := readBlock(temp)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
-	return tempBlock
+	return tempBlock, nil
 }
 
 func readLines(filename string, stopPrefix string) ([]string, int) {
@@ -332,7 +416,11 @@ func rewriteTfVars(ctx *context, filename string) {
 
 	temp1 := fmt.Sprintf("%s/%d.hcl", ctx.tempDir, num(ctx))
 	writeLines(temp1, mapLines)
-	mapBlock := readBlockX(temp1)
+	mapBlock, err := readBlockX(temp1)
+	if err != nil {
+		return
+	}
+
 	mapBlock = rewriteBlock(ctx, mapBlock, false)
 
 	temp2 := writeBlock(ctx, mapBlock)
@@ -364,34 +452,25 @@ func rewriteTfVars(ctx *context, filename string) {
 	}
 
 	if mismatch {
-		text := fmt.Sprintf("File mismatch: \"%s\"\n", filename)
-		ctx.err.WriteString(text)
+		text := fmt.Sprintf("File mismatch: \"%s\"", filename)
+		out(ctx, text)
 		writeLines(filename, fmtLines)
-		ctx.exit = 1
+		setErrExit(ctx)
 	}
 }
 
 // Run the program once.
 func run(ctx *context) {
-	ctx.err = os.Stderr
-	entries, err := os.ReadDir("./")
+	ctx.tempDir = fmt.Sprintf(".terraform/taho/%d-%d", ctx.level, num(ctx))
+	_, err := os.Stat(ctx.tempDir)
 	if err != nil {
-		panic(err)
-	}
-
-	for {
-		ctx.tempDir = fmt.Sprintf(".terraform/taho/%d-%d", ctx.level, num(ctx))
-		_, err := os.Stat(ctx.tempDir)
-		if err != nil {
-			if errors.Is(err, fs.ErrNotExist) {
-				errM := os.MkdirAll(ctx.tempDir, 0777)
-				if errM != nil {
-					panic(errM)
-				}
-			} else {
-				panic(err)
+		if errors.Is(err, fs.ErrNotExist) {
+			errM := os.MkdirAll(ctx.tempDir, 0777)
+			if errM != nil {
+				panic(errM)
 			}
-			break
+		} else {
+			panic(err)
 		}
 	}
 
@@ -403,77 +482,83 @@ func run(ctx *context) {
 		"variables.tf": true,
 	}
 
-	tf := false
+	entries, err := os.ReadDir("./")
+	if err != nil {
+		panic(err)
+	}
 
+	tf := false
 	for _, entry := range entries {
 		filename := entry.Name()
-		if strings.HasSuffix(filename, ".tfvars") {
-			rewriteTfVars(ctx, filename)
-		} else if strings.HasSuffix(filename, ".tf") {
-			tf = true
-			if !strings.HasPrefix(filename, "_") {
-				_, specialName := specialNames[filename]
+		if !strings.HasPrefix(filename, "_") {
+			if strings.HasSuffix(filename, ".tfvars") {
+				rewriteTfVars(ctx, filename)
+			} else if strings.HasSuffix(filename, ".tf") {
+				tf = true
+				if !strings.HasPrefix(filename, "_") {
+					_, specialName := specialNames[filename]
 
-				fileBytes, err := os.ReadFile(filename)
-				if err != nil {
-					panic(err)
-				}
+					fileBytes, err := os.ReadFile(filename)
+					if err != nil {
+						panic(err)
+					}
 
-				pos := hcl.InitialPos
-				file, diag := hclwrite.ParseConfig(fileBytes, filename, pos)
-				if diag.HasErrors() {
-					panic("HasErrors")
-				}
+					pos := hcl.InitialPos
+					file, diag := hclwrite.ParseConfig(fileBytes, filename, pos)
+					if diag.HasErrors() {
+						panic("HasErrors")
+					}
 
-				blocks := []*hclwrite.Block{}
-				for _, block := range file.Body().Blocks() {
-					if block.Type() == "terraform" {
-						ctx.terraform = append(ctx.terraform, block)
-					} else if block.Type() == "provider" {
-						ctx.providers = append(ctx.providers, block)
-					} else if block.Type() == "variable" {
-						ctx.variables = append(ctx.variables, block)
-					} else if block.Type() == "output" {
-						ctx.outputs = append(ctx.outputs, block)
-					} else {
-						if specialName {
-							ctx.main = append(ctx.main, block)
+					blocks := []*hclwrite.Block{}
+					for _, block := range file.Body().Blocks() {
+						if block.Type() == "terraform" {
+							ctx.terraform = append(ctx.terraform, block)
+						} else if block.Type() == "provider" {
+							ctx.providers = append(ctx.providers, block)
+						} else if block.Type() == "variable" {
+							ctx.variables = append(ctx.variables, block)
+						} else if block.Type() == "output" {
+							ctx.outputs = append(ctx.outputs, block)
 						} else {
-							blocks = append(blocks, block)
+							if specialName {
+								ctx.main = append(ctx.main, block)
+							} else {
+								blocks = append(blocks, block)
+							}
 						}
 					}
-				}
 
-				newFile := hclwrite.NewFile()
+					newFile := hclwrite.NewFile()
 
-				blocks = rewriteBlocks(ctx, blocks, true)
+					blocks = rewriteBlocks(ctx, blocks, true)
 
-				len := len(blocks)
-				newFileBody := newFile.Body()
-				for i, block := range blocks {
-					newFileBody.AppendBlock(block)
-					if i < len-1 {
-						newFileBody.AppendNewline()
-					}
-				}
-
-				newBytes := newFile.Bytes()
-
-				if !specialName {
-					if !bytes.Equal(fileBytes, newBytes) {
-						text := fmt.Sprintf("File mismatch: \"%s\"\n", filename)
-						ctx.err.WriteString(text)
-						ctx.exit = 1
-					}
-					if len == 0 {
-						errR := os.Remove(filename)
-						if errR != nil {
-							panic(errR)
+					len := len(blocks)
+					newFileBody := newFile.Body()
+					for i, block := range blocks {
+						newFileBody.AppendBlock(block)
+						if i < len-1 {
+							newFileBody.AppendNewline()
 						}
-					} else {
-						errW := os.WriteFile(filename, newBytes, 0644)
-						if errW != nil {
-							panic(errW)
+					}
+
+					newBytes := newFile.Bytes()
+
+					if !specialName {
+						if !bytes.Equal(fileBytes, newBytes) {
+							text := fmt.Sprintf("File mismatch: \"%s\"", filename)
+							out(ctx, text)
+							setErrExit(ctx)
+						}
+						if len == 0 {
+							errR := os.Remove(filename)
+							if errR != nil {
+								panic(errR)
+							}
+						} else {
+							errW := os.WriteFile(filename, newBytes, 0644)
+							if errW != nil {
+								panic(errW)
+							}
 						}
 					}
 				}
@@ -513,6 +598,12 @@ func run(ctx *context) {
 		if errR != nil {
 			panic(errR)
 		}
+	}
+}
+
+func setErrExit(ctx *context) {
+	if ctx.exit == 0 {
+		ctx.exit = 1
 	}
 }
 
@@ -561,7 +652,12 @@ func sortAttributes(
 
 	for k1 := range keys {
 		key := keys[k1]
-		tempBlock := readBlockX(temp)
+
+		tempBlock, err := readBlockX(temp)
+		if err != nil {
+			panic(err)
+		}
+
 		for k2 := range keys {
 			if keys[k1] != keys[k2] {
 				tempBlock.Body().RemoveAttribute(keys[k2])
@@ -762,9 +858,9 @@ func writeTfFile(ctx *context, filename string, blocks []*hclwrite.Block) {
 		newBytes := file.Bytes()
 
 		if !bytes.Equal(fileBytes, newBytes) {
-			text := fmt.Sprintf("Managed file mismatch: \"%s\"\n", filename)
-			ctx.err.WriteString(text)
-			ctx.exit = 1
+			text := fmt.Sprintf("Managed file mismatch: \"%s\"", filename)
+			out(ctx, text)
+			setErrExit(ctx)
 		}
 
 		err := os.WriteFile(filename, newBytes, 0644)
