@@ -19,14 +19,16 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
-const version = "0.0.31"
+const version = "0.0.32"
 
 type context struct {
 	exit      int
+	imports   []*hclwrite.Block
 	level     int
 	main      []*hclwrite.Block
 	num       int
 	out       *os.File
+	checks    []*hclwrite.Block
 	outputs   []*hclwrite.Block
 	providers []*hclwrite.Block
 	tempDir   string
@@ -295,8 +297,7 @@ func removeTrailingComments(ctx *context,
 }
 
 func rewriteBlock(
-	ctx *context, block *hclwrite.Block,
-	metaArgMode bool) *hclwrite.Block {
+	ctx *context, block *hclwrite.Block, metaMode bool) *hclwrite.Block {
 
 	detatchedNestedBlocks := make([]*hclwrite.Block, 0)
 	bodyBlocks := block.Body().Blocks()
@@ -315,18 +316,25 @@ func rewriteBlock(
 	slices.Sort(blockTypes)
 	blockTypes = slices.Compact(blockTypes)
 
-	lastBlockTypes := len(blockTypes) - 1
-	for b := range blockTypes {
-		if b < lastBlockTypes {
-			if blockTypes[b] == "lifecycle" {
-				blockTypes[b] = blockTypes[b+1]
-				blockTypes[b+1] = "lifecycle"
+	if metaMode {
+		metaBlocks := map[string]bool{
+			"connection":  true,
+			"lifecycle":   true,
+			"provisioner": true,
+		}
+		lastBlockTypes := len(blockTypes) - 1
+		for b := range blockTypes {
+			if b < lastBlockTypes {
+				if metaBlocks[blockTypes[b]] {
+					blockTypes[b] = blockTypes[b+1]
+					blockTypes[b+1] = "lifecycle"
+				}
 			}
 		}
 	}
 
 	block = removeTrailingComments(ctx, block)
-	block = sortAttributes(ctx, block, metaArgMode)
+	block = sortAttributes(ctx, block, metaMode)
 
 	keys := getKeys(block)
 	newLineNeeded := len(keys) > 0
@@ -347,7 +355,7 @@ func rewriteBlock(
 					if newLineNeeded {
 						blockBody.AppendNewline()
 					}
-					nestedBlock = rewriteBlock(ctx, nestedBlock, metaArgMode)
+					nestedBlock = rewriteBlock(ctx, nestedBlock, metaMode)
 					blockBody.AppendBlock(nestedBlock)
 					newLineNeeded = true
 				}
@@ -359,7 +367,7 @@ func rewriteBlock(
 }
 
 func rewriteBlocks(ctx *context, blocks []*hclwrite.Block,
-	metaArgMode bool) []*hclwrite.Block {
+	metaMode bool) []*hclwrite.Block {
 
 	blockCmp := func(a *hclwrite.Block, b *hclwrite.Block) int {
 		typeOrder := cmp.Compare(a.Type(), b.Type())
@@ -400,7 +408,7 @@ func rewriteBlocks(ctx *context, blocks []*hclwrite.Block,
 	newBlocks := make([]*hclwrite.Block, 0)
 	for b := range blocks {
 		block := blocks[b]
-		block = rewriteBlock(ctx, block, metaArgMode)
+		block = rewriteBlock(ctx, block, metaMode)
 		newBlocks = append(newBlocks, block)
 	}
 
@@ -475,6 +483,8 @@ func run(ctx *context) {
 	}
 
 	specialNames := map[string]bool{
+		"checks.tf":    true,
+		"imports.tf":   true,
 		"main.tf":      true,
 		"outputs.tf":   true,
 		"providers.tf": true,
@@ -511,7 +521,11 @@ func run(ctx *context) {
 
 					blocks := []*hclwrite.Block{}
 					for _, block := range file.Body().Blocks() {
-						if block.Type() == "terraform" {
+						if block.Type() == "check" {
+							ctx.checks = append(ctx.imports, block)
+						} else if block.Type() == "import" {
+							ctx.imports = append(ctx.imports, block)
+						} else if block.Type() == "terraform" {
 							ctx.terraform = append(ctx.terraform, block)
 						} else if block.Type() == "provider" {
 							ctx.providers = append(ctx.providers, block)
@@ -575,22 +589,13 @@ func run(ctx *context) {
 			ctx.terraform = append(ctx.terraform, newBlock)
 		}
 
-		writeTfFile(ctx, "main.tf", ctx.main)
-		writeTfFile(ctx, "outputs.tf", ctx.outputs)
-		writeTfFile(ctx, "terraform.tf", ctx.terraform)
-		writeTfFile(ctx, "variables.tf", ctx.variables)
-
-		if len(ctx.providers) > 0 {
-			writeTfFile(ctx, "providers.tf", ctx.providers)
-		} else {
-			_, errS := os.Stat("providers.tf")
-			if errS == nil {
-				errR := os.Remove("providers.tf")
-				if errR != nil {
-					panic(errR)
-				}
-			}
-		}
+		writeTfFile(ctx, false, "checks.tf", ctx.checks)
+		writeTfFile(ctx, false, "import.tf", ctx.imports)
+		writeTfFile(ctx, false, "outputs.tf", ctx.outputs)
+		writeTfFile(ctx, false, "providers.tf", ctx.providers)
+		writeTfFile(ctx, false, "variables.tf", ctx.variables)
+		writeTfFile(ctx, true, "main.tf", ctx.main)
+		writeTfFile(ctx, true, "terraform.tf", ctx.terraform)
 	}
 
 	if !strings.HasSuffix(ctx.version, "-0") {
@@ -824,9 +829,21 @@ func writeLines(filename string, lines []string) {
 	writer.Flush()
 }
 
-func writeTfFile(ctx *context, filename string, blocks []*hclwrite.Block) {
-	fileBytes := []byte{}
+func writeTfFile(ctx *context, always bool, filename string, blocks []*hclwrite.Block) {
+	if !always {
+		if len(blocks) == 0 {
+			_, errS := os.Stat(filename)
+			if errS == nil {
+				errR := os.Remove(filename)
+				if errR != nil {
+					panic(errR)
+				}
+			}
+			return
+		}
+	}
 
+	fileBytes := []byte{}
 	_, err := os.Stat(filename)
 	if err == nil {
 		fileBytes, err = os.ReadFile(filename)

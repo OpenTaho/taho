@@ -8,10 +8,6 @@ resource "kubernetes_cluster_role" "planner" {
 
   aggregation_rule {}
 
-  connection {
-    host = null
-  }
-
   metadata {
     name = "sre3:planner"
   }
@@ -25,6 +21,10 @@ resource "kubernetes_cluster_role" "planner" {
   rule {
     non_resource_urls = ["/version"]
     verbs             = ["get"]
+  }
+
+  lifecycle {
+    create_before_destroy = true
   }
 
   lifecycle {

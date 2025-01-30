@@ -17,21 +17,24 @@ minimal viable version exists. The tool currently reports it's version as
 
 ## Tool Description
 
-This tool is inspired by the [Hashicorp Terraform Style Guide][0], [OpenTofu
-Style Conventions][1], input from online communities related to Tofu and
-Terraform, the operation of the tools, and opinions of those contribute to this
-tool.
+This tool is inspired by the [OpenTofu Style Conventions][1], as well as input
+from online communities related to Tofu and Terraform, and opinions of those
+contribute to this tool.
 
 This tool initializes, checks and/or restructures Terraform module directories
 such that the code is structured as follows.
 
 1. `main.tf` exists
-2. `variables.tf` exists with only variable type blocks
-3. `outputs.tf` exits with only output type blocks
-4. `terraform.tf` exits with only terraform type blocks
-5. `providers.tf` exits with only terraform type blocks
-6. Blocks are in sorted order
-7. Nested blocks are after attributes
+2. `variables.tf` has only variable type blocks
+3. `outputs.tf` has only output type blocks
+4. `terraform.tf` has only terraform type blocks
+5. `providers.tf` has only terraform type blocks
+6. When arguments and nested blocks exist within a block body,
+   arguments are placed before blocks below them. One blank line to separate the
+   arguments from the blocks and one blank line is used to seperate single line
+   arguments from multi line arguments. Meta arguments are placed ahead of
+   normal arguments. Meta blocks are placed after normal blocks. Items are
+   arranged is alphabetic within their respective grouping.
 
 ## Problems
 
@@ -108,5 +111,4 @@ The tool can also be invoked with `-v` or `--version` to report it's version.
 taho --version
 ```
 
-[0]: https://developer.hashicorp.com/terraform/language/style
 [1]: https://opentofu.org/docs/language/syntax/style/
