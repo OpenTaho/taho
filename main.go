@@ -19,7 +19,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
-const version = "0.0.32"
+const version = "0.0.33"
 
 type context struct {
 	exit      int
@@ -241,7 +241,7 @@ func readLines(filename string, stopPrefix string) ([]string, int) {
 // We remove comment lines that are at the end of the block because these cause
 // problems with other areas of parsing.
 func removeTrailingComments(ctx *context,
-	block *hclwrite.Block) *hclwrite.Block {
+	block *hclwrite.Block, fixOtherComments bool, key string) *hclwrite.Block {
 
 	temp := writeBlock(ctx, block)
 	open, err := os.Open(temp)
@@ -252,10 +252,56 @@ func removeTrailingComments(ctx *context,
 	s.Split(bufio.ScanLines)
 	lines := []string{}
 	mode := 0
+
+	// Remove blank lines because they cause problems with parsing
+	blockPrefix := block.Type() + " "
+	keyPrefix := "  " + key + " = "
+	inspan := false
+	inblock := false
 	for s.Scan() {
-		text := s.Text()
-		if text != "" || mode > 1 {
-			lines = append(lines, text)
+		line := s.Text()
+		if fixOtherComments {
+			if strings.HasPrefix(line, blockPrefix) {
+				fixOtherComments = key != ""
+				inblock = true
+			} else if strings.HasPrefix(line, keyPrefix) {
+				fixOtherComments = false
+			} else {
+				trim := strings.TrimLeft(line, " ")
+
+				if strings.HasPrefix(trim, "//") {
+					line = "# " + strings.TrimPrefix(strings.TrimPrefix(trim, "//"), " ")
+				} else if strings.HasPrefix(trim, "/*") {
+					line = strings.TrimPrefix(trim, "/*")
+					if line != "" {
+						line = "# " + line
+						if inblock {
+							line = "  " + line
+						}
+					}
+					inspan = true
+				}
+
+				if inspan {
+					pos := strings.Index(line, "*/")
+					if pos >= 0 {
+						line = line[pos+2:]
+						inspan = false
+					} else {
+						line = strings.TrimLeft(line, " ")
+						line = strings.TrimPrefix(line, "* ")
+						if line != "" {
+							line = "# " + line
+							if inblock {
+								line = "  " + line
+							}
+						}
+					}
+				}
+			}
+		}
+		if line != "" || mode > 1 {
+			lines = append(lines, line)
 			mode++
 		}
 	}
@@ -333,7 +379,6 @@ func rewriteBlock(
 		}
 	}
 
-	block = removeTrailingComments(ctx, block)
 	block = sortAttributes(ctx, block, metaMode)
 
 	keys := getKeys(block)
@@ -346,7 +391,7 @@ func rewriteBlock(
 		orderedBlockType := blockTypes[n]
 		for b := range detatchedNestedBlocks {
 			detachedBlock := detatchedNestedBlocks[lenNestedBlocks-1-b]
-			tempBlock := removeTrailingComments(ctx, detachedBlock)
+			tempBlock := removeTrailingComments(ctx, detachedBlock, false, "")
 			tempBlocks := tempBlock.Body().Blocks()
 			for tbb := range tempBlocks {
 				nestedBlock := tempBlocks[tbb]
@@ -647,6 +692,7 @@ func sortAttributes(
 	keys := getKeys(block)
 	keys = sortAttributeKeys(keys, metaArguments)
 
+	block = removeTrailingComments(ctx, block, len(keys) == 0, "")
 	temp := writeBlock(ctx, block)
 	lines, start := readLines(temp, "#")
 
@@ -669,7 +715,7 @@ func sortAttributes(
 			}
 		}
 
-		tempBlock = removeTrailingComments(ctx, tempBlock)
+		tempBlock = removeTrailingComments(ctx, tempBlock, true, key)
 
 		lines2, _ := readLines(writeBlock(ctx, tempBlock), "")
 		isMultiLine := ifMultiline(lines2)
@@ -714,13 +760,14 @@ func sortAttributes(
 			panic(err)
 		}
 		for k2 := range keys {
-			if keys[k1] != keys[k2] {
+			if keys[k2] != key {
 				tempBlock.Body().RemoveAttribute(keys[k2])
 			}
 		}
-		tempBlock = removeTrailingComments(ctx, tempBlock)
+		tempBlock = removeTrailingComments(ctx, tempBlock, true, keys[0])
 
-		lines2, _ := readLines(writeBlock(ctx, tempBlock), "")
+		temp := writeBlock(ctx, tempBlock)
+		lines2, _ := readLines(temp, "")
 		isMultiLine := ifMultiline(lines2)
 
 		if isMultiLine {

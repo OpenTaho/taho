@@ -14,7 +14,7 @@ variable "input_1" {
   # This is a comment about the default attribute.
   default = null
 
-  # This is an inner comment at the end of the block.
+  # This is an inner comment at end of block will be removed.
 }
 
 # This is a comment about output_1
