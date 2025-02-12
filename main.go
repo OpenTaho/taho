@@ -19,7 +19,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
-const version = "0.0.33"
+const version = "0.0.34"
 
 type context struct {
 	exit      int
@@ -483,7 +483,7 @@ func rewriteTfVars(ctx *context, filename string) {
 	temp3 := fmt.Sprintf("%s/%d.tf", ctx.tempDir, num(ctx))
 	writeLines(temp3, newLines)
 
-	cmd := exec.Command("terraform", "fmt", temp3)
+	cmd := exec.Command("tofu", "fmt", temp3)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -683,6 +683,10 @@ func sortAttributes(
 		"for_each":   true,
 		"provider":   true,
 		"source":     true,
+	}
+
+	if block.Type() == "module" {
+		metaArguments["version"] = true
 	}
 
 	if !metaArgMode {
