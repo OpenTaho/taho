@@ -19,7 +19,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
-const version = "0.0.34"
+const version = "0.0.35"
 
 type context struct {
 	exit      int
@@ -832,7 +832,9 @@ func sortAttributes(
 			}
 		}
 
-		hasProcessedOneKey = true
+		if !metaArgument {
+			hasProcessedOneKey = true
+		}
 	}
 
 	if !strings.HasSuffix(lines[start], "{}") {
