@@ -19,7 +19,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
-const version = "0.0.35"
+const version = "0.0.36"
 
 type context struct {
 	exit      int
@@ -683,6 +683,10 @@ func sortAttributes(
 		"for_each":   true,
 		"provider":   true,
 		"source":     true,
+	}
+
+	if block.Type() == "locals" {
+		metaArgMode = false
 	}
 
 	if block.Type() == "module" {
