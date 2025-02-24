@@ -19,7 +19,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
-const version = "0.0.37"
+const version = "0.0.38"
 
 type context struct {
 	exit      int
@@ -554,13 +554,13 @@ func run(ctx *context) {
 		filename := entry.Name()
 		isOverride := strings.HasPrefix(filename, "_")
 		isTF := strings.HasSuffix(filename, ".tf")
-		isHcl := strings.HasSuffix(filename, ".hcl")
+		isHCL := strings.HasSuffix(filename, ".hcl") && filename != ".terraform.lock.hcl"
 
 		if !isOverride {
 			if strings.HasSuffix(filename, ".tfvars") {
 				rewriteTfVars(ctx, filename)
 
-			} else if isTF || isHcl {
+			} else if isTF || isHCL {
 				hasTF = hasTF || isTF
 				_, isSpecial := specialNames[filename]
 
@@ -571,7 +571,7 @@ func run(ctx *context) {
 
 				blocks := []*hclwrite.Block{}
 				for _, block := range file.Body().Blocks() {
-					if isHcl {
+					if isHCL {
 						blocks = append(blocks, block)
 					} else {
 						if block.Type() == "check" {
