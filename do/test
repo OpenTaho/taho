@@ -32,6 +32,7 @@ main() {
   test "$1" 19 0c286d419003fbc5868dc14ec5c87d01a5f6392d
   test "$1" 20 41c57843b61db19da0fa50621fc3bf04fcf0d16f
   test "$1" 21 b33ada06a8d6f587e3d8b4285c5ba0748a34be17
+  test "$1" 22 da39a3ee5e6b4b0d3255bfef95601890afd80709
 }
 
 test() {

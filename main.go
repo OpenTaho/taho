@@ -19,7 +19,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
-const version = "0.0.36"
+const version = "0.0.37"
 
 type context struct {
 	exit      int
@@ -55,10 +55,9 @@ func doMain(ctx *context) {
 	}
 }
 
-// Get the keys for attributes in the block
-func getKeys(block *hclwrite.Block) []string {
+func getAttributeKeys(attributes map[string]*hclwrite.Attribute) []string {
 	keys := []string{}
-	for key := range maps.Keys(block.Body().Attributes()) {
+	for key := range maps.Keys(attributes) {
 		keys = append(keys, key)
 	}
 	return keys
@@ -73,7 +72,6 @@ func getTypeAndLabels(newBlock *hclwrite.Block) string {
 	return typeAndLabels
 }
 
-// Handle command line options
 func handleOptions(ctx *context) {
 	if len(os.Args[1:]) > 0 {
 		if os.Args[1:][0] == "-v" || os.Args[1:][0] == "--version" {
@@ -167,6 +165,7 @@ func isTestable() bool {
 		if entry.Type().IsRegular() {
 			name := entry.Name()
 			if strings.HasSuffix(name, ".tf") ||
+				strings.HasSuffix(name, ".hcl") ||
 				strings.HasSuffix(name, ".tfvars") {
 				return true
 			}
@@ -197,6 +196,16 @@ func num(ctx *context) int {
 
 func out(ctx *context, text string) {
 	ctx.out.WriteString(text + "\n")
+}
+
+func parseConfig(filename string) ([]byte, *hclwrite.File, hcl.Diagnostics) {
+	fileBytes, err := os.ReadFile(filename)
+	if err != nil {
+		panic(err)
+	}
+	pos := hcl.InitialPos
+	file, diag := hclwrite.ParseConfig(fileBytes, filename, pos)
+	return fileBytes, file, diag
 }
 
 func readBlock(filename string) (*hclwrite.Block, error) {
@@ -238,8 +247,6 @@ func readLines(filename string, stopPrefix string) ([]string, int) {
 	return lines, start
 }
 
-// We remove comment lines that are at the end of the block because these cause
-// problems with other areas of parsing.
 func removeTrailingComments(ctx *context,
 	block *hclwrite.Block, fixOtherComments bool, key string) *hclwrite.Block {
 
@@ -381,7 +388,7 @@ func rewriteBlock(
 
 	block = sortAttributes(ctx, block, metaMode)
 
-	keys := getKeys(block)
+	keys := getAttributeKeys(block.Body().Attributes())
 	newLineNeeded := len(keys) > 0
 
 	lenNestedBlocks := len(detatchedNestedBlocks)
@@ -542,30 +549,31 @@ func run(ctx *context) {
 		panic(err)
 	}
 
-	tf := false
+	hasTF := false
 	for _, entry := range entries {
 		filename := entry.Name()
-		if !strings.HasPrefix(filename, "_") {
+		isOverride := strings.HasPrefix(filename, "_")
+		isTF := strings.HasSuffix(filename, ".tf")
+		isHcl := strings.HasSuffix(filename, ".hcl")
+
+		if !isOverride {
 			if strings.HasSuffix(filename, ".tfvars") {
 				rewriteTfVars(ctx, filename)
-			} else if strings.HasSuffix(filename, ".tf") {
-				tf = true
-				if !strings.HasPrefix(filename, "_") {
-					_, specialName := specialNames[filename]
 
-					fileBytes, err := os.ReadFile(filename)
-					if err != nil {
-						panic(err)
-					}
+			} else if isTF || isHcl {
+				hasTF = hasTF || isTF
+				_, isSpecial := specialNames[filename]
 
-					pos := hcl.InitialPos
-					file, diag := hclwrite.ParseConfig(fileBytes, filename, pos)
-					if diag.HasErrors() {
-						panic("HasErrors")
-					}
+				fileBytes, file, diag := parseConfig(filename)
+				if diag.HasErrors() {
+					panic("HasErrors")
+				}
 
-					blocks := []*hclwrite.Block{}
-					for _, block := range file.Body().Blocks() {
+				blocks := []*hclwrite.Block{}
+				for _, block := range file.Body().Blocks() {
+					if isHcl {
+						blocks = append(blocks, block)
+					} else {
 						if block.Type() == "check" {
 							ctx.checks = append(ctx.imports, block)
 						} else if block.Type() == "import" {
@@ -578,46 +586,81 @@ func run(ctx *context) {
 							ctx.variables = append(ctx.variables, block)
 						} else if block.Type() == "output" {
 							ctx.outputs = append(ctx.outputs, block)
+						} else if isSpecial {
+							ctx.main = append(ctx.main, block)
 						} else {
-							if specialName {
-								ctx.main = append(ctx.main, block)
-							} else {
-								blocks = append(blocks, block)
-							}
+							blocks = append(blocks, block)
 						}
 					}
+				}
 
-					newFile := hclwrite.NewFile()
-
-					blocks = rewriteBlocks(ctx, blocks, true)
-
-					len := len(blocks)
-					newFileBody := newFile.Body()
-					for i, block := range blocks {
-						newFileBody.AppendBlock(block)
-						if i < len-1 {
-							newFileBody.AppendNewline()
-						}
+				var newFile *hclwrite.File
+				if isTF {
+					newFile = hclwrite.NewFile()
+				} else {
+					_, file, diag := parseConfig(filename)
+					newFile = file
+					if diag != nil {
+						panic("Bad file")
 					}
-
+					fileBlocks := file.Body().Blocks()
+					for _, block := range fileBlocks {
+						newFile.Body().RemoveBlock(block)
+					}
 					newBytes := newFile.Bytes()
+					errW := os.WriteFile(filename, newBytes, 0644)
+					if errW != nil {
+						panic(errW)
+					}
+					lines1, _ := readLines(filename, "")
+					newLines := slices.Concat([]string{"terragrunt {"}, lines1, []string{"}"})
+					temp1 := fmt.Sprintf("%s/%d.hcl", ctx.tempDir, num(ctx))
+					writeLines(temp1, newLines)
+					_, file, _ = parseConfig(temp1)
+					block := file.Body().Blocks()[0]
+					block = rewriteBlock(ctx, block, false)
+					temp2 := writeBlock(ctx, block)
+					lines2, _ := readLines(temp2, "")
+					lines2 = slices.Delete(lines2, 0, 1)
+					lines2 = slices.Delete(lines2, len(lines2)-1, len(lines2))
+					lines3 := []string{}
+					for _, line := range lines2 {
+						line = strings.TrimPrefix(line, "  ")
+						lines3 = append(lines3, line)
+					}
+					lines3 = append(lines3, "")
+					temp3 := fmt.Sprintf("%s/%d.hcl", ctx.tempDir, num(ctx))
+					writeLines(temp3, lines3)
+					_, file, _ = parseConfig(temp3)
+					newFile = file
+				}
 
-					if !specialName {
-						if !bytes.Equal(fileBytes, newBytes) {
-							text := fmt.Sprintf("File mismatch: \"%s\"", filename)
-							out(ctx, text)
-							setErrExit(ctx)
+				blocks = rewriteBlocks(ctx, blocks, true)
+				len := len(blocks)
+				newFileBody := newFile.Body()
+				for i, block := range blocks {
+					newFileBody.AppendBlock(block)
+					if i < len-1 {
+						newFileBody.AppendNewline()
+					}
+				}
+				newBytes := newFile.Bytes()
+
+				if !isSpecial {
+					if !bytes.Equal(fileBytes, newBytes) {
+						text := fmt.Sprintf("File mismatch: \"%s\"", filename)
+						out(ctx, text)
+						setErrExit(ctx)
+					}
+					if len == 0 {
+						errR := os.Remove(filename)
+						if errR != nil {
+							panic(errR)
 						}
-						if len == 0 {
-							errR := os.Remove(filename)
-							if errR != nil {
-								panic(errR)
-							}
-						} else {
-							errW := os.WriteFile(filename, newBytes, 0644)
-							if errW != nil {
-								panic(errW)
-							}
+					} else {
+						errW := os.WriteFile(filename, newBytes, 0644)
+						if errW != nil {
+							panic(errW)
 						}
 					}
 				}
@@ -625,7 +668,7 @@ func run(ctx *context) {
 		}
 	}
 
-	if tf {
+	if hasTF {
 		if len(ctx.terraform) == 0 {
 			blockLabels := []string{}
 			newBlock := hclwrite.NewBlock("terraform", blockLabels)
@@ -697,7 +740,7 @@ func sortAttributes(
 		metaArguments = map[string]bool{}
 	}
 
-	keys := getKeys(block)
+	keys := getAttributeKeys(block.Body().Attributes())
 	keys = sortAttributeKeys(keys, metaArguments)
 
 	block = removeTrailingComments(ctx, block, len(keys) == 0, "")
