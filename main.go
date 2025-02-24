@@ -19,7 +19,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
-const version = "0.0.38"
+const version = "0.0.39"
 
 type context struct {
 	exit      int
@@ -628,7 +628,9 @@ func run(ctx *context) {
 						line = strings.TrimPrefix(line, "  ")
 						lines3 = append(lines3, line)
 					}
-					lines3 = append(lines3, "")
+					if len(lines3) > 0 {
+						lines3 = append(lines3, "")
+					}
 					temp3 := fmt.Sprintf("%s/%d.hcl", ctx.tempDir, num(ctx))
 					writeLines(temp3, lines3)
 					_, file, _ = parseConfig(temp3)
