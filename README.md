@@ -29,7 +29,8 @@ such that the code is structured as follows.
 3. `outputs.tf` has only output type blocks
 4. `terraform.tf` has only terraform type blocks
 5. `providers.tf` has only terraform type blocks
-6. When arguments and nested blocks exist within a block body,
+6. `*.hcl` files are formatted such that blocks follow attributes.
+7. When arguments and nested blocks exist within a block body,
    arguments are placed before blocks below them. One blank line to separate the
    arguments from the blocks and one blank line is used to seperate single line
    arguments from multi line arguments. Meta arguments are placed ahead of
@@ -71,7 +72,7 @@ A binary can be installed for MacOS.
 mkdir -p "$HOME/bin"
 
 curl -s -L -o "$HOME/bin/taho" \
-  https://github.com/OpenTaho/taho/releases/download/v0.0.3/taho-0.0.3-darwin-$(arch)"
+  https://github.com/OpenTaho/taho/releases/download/v0.0.40/taho-0.0.40-darwin-$(arch)"
 
 chmod +x "$HOME/bin/taho"
 ```
@@ -84,7 +85,7 @@ A binary can be installed for Linux.
 mkdir -p "$HOME/bin"
 
 curl -s -L -o "$HOME/bin/taho" \
-  https://github.com/OpenTaho/taho/releases/download/v0.0.3/taho-0.0.3-linux-amd64"
+  https://github.com/OpenTaho/taho/releases/download/v0.0.40/taho-0.0.40-linux-amd64"
 
 chmod +x "$HOME/bin/taho"
 ```

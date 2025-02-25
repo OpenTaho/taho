@@ -19,16 +19,16 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
-const version = "0.0.39"
+const version = "0.0.40"
 
 type context struct {
+	checks    []*hclwrite.Block
 	exit      int
 	imports   []*hclwrite.Block
 	level     int
 	main      []*hclwrite.Block
 	num       int
 	out       *os.File
-	checks    []*hclwrite.Block
 	outputs   []*hclwrite.Block
 	providers []*hclwrite.Block
 	tempDir   string
