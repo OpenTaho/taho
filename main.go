@@ -19,7 +19,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
-const version = "0.0.40"
+const version = "0.0.41"
 
 type context struct {
 	checks    []*hclwrite.Block
@@ -638,11 +638,13 @@ func run(ctx *context) {
 				}
 
 				blocks = rewriteBlocks(ctx, blocks, true)
-				len := len(blocks)
+				keys := getAttributeKeys(newFile.Body().Attributes())
+				keysLen := len(keys)
+				blocksLen := len(blocks)
 				newFileBody := newFile.Body()
 				for i, block := range blocks {
 					newFileBody.AppendBlock(block)
-					if i < len-1 {
+					if i < blocksLen-1 {
 						newFileBody.AppendNewline()
 					}
 				}
@@ -654,7 +656,7 @@ func run(ctx *context) {
 						out(ctx, text)
 						setErrExit(ctx)
 					}
-					if len == 0 {
+					if blocksLen == 0 && keysLen == 0 {
 						errR := os.Remove(filename)
 						if errR != nil {
 							panic(errR)
@@ -832,9 +834,21 @@ func sortAttributes(
 					fmt.Sprintf("%s = ", key)) {
 
 					if strings.HasSuffix(line, "= {") {
+						lines3 := lines2[n+1 : len(lines2)-1]
+						for k := range lines3 {
+							if strings.HasPrefix(lines3[k], "    \"") {
+								line := lines3[k]
+								eidx := strings.Index(line, "=")
+								key = strings.Trim(line[0:eidx-1], " ")
+								key = strings.TrimPrefix(key, "\"")
+								key = strings.TrimSuffix(key, "\"")
+								line = "    " + key + " " + line[eidx:]
+								lines3[k] = line
+							}
+						}
 						body := []string{"map {"}
-						body = append(body, lines2[n+1:]...)
-						body = body[:len(body)-2]
+						body = append(body, lines3...)
+						body = body[:len(body)-1]
 						body = append(body, "}")
 						temp3 := fmt.Sprintf("%s/%d.hcl", ctx.tempDir, num(ctx))
 						writeLines(temp3, body)

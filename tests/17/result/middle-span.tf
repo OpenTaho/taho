@@ -1,3 +1,0 @@
-# Header span comment
-locals {
-}

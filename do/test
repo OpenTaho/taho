@@ -24,15 +24,27 @@ main() {
   test "$1" 11 d9cd93b88d28dd485ce4fa13ee284916975d1c91
   test "$1" 12 5d56eb85084521957d5de1fd7ae0388b3b88fe30
   test "$1" 13 e9a31804aaa1085f4a3009a190ec3d52625e16ca
-  test "$1" 14 dcb1065e15e9877e7e2cfae26c7619342513002a
-  test "$1" 15 f82e505455e99c2755b32c6c23a7b04a76ccf3c9
-  test "$1" 16 5eb3860bba25714bad4e42ab6783a1a750bfcca2
-  test "$1" 17 3c3cb7897c7de0c47274b481400ac44beb219ebc
-  test "$1" 18 c02831a78d8e821a98029d51ca4a5aeeac8674fd
-  test "$1" 19 0c286d419003fbc5868dc14ec5c87d01a5f6392d
+  test "$1" 14 841549b659dcf88a2b23acc4290dd5bd428d4d69
+  test "$1" 15 cb17054bdbe93537f6bd8f6e6c1e3ac9652aa108
+  test "$1" 16 264901f6cdfad95b631af0714bc475af1e36ba8e
+  test "$1" 17 119818411c5e1b8077b9d005941be6397b017c52
+  test "$1" 18 512b57005c76cbffb766612c732744bb76824f46
+  test "$1" 19 cac296a7f9d77205a55a9cd69684f531beddc8f9
   test "$1" 20 41c57843b61db19da0fa50621fc3bf04fcf0d16f
   test "$1" 21 b33ada06a8d6f587e3d8b4285c5ba0748a34be17
-  test "$1" 22 da39a3ee5e6b4b0d3255bfef95601890afd80709
+  test "$1" 22 273947d6374dbfad0f41b4b7c34eba38a4475ed8
+  test "$1" 23 14103de011e176632f112c34722d58cb59e8399a
+}
+
+get_sha1sum() {
+  (
+    [ ! -e ./main.tfvars ] || sha1sum ./*.tfvars
+    [ ! -e ./main.tf ] || sha1sum ./*.tf
+    [ ! -e ./README.md ] || sha1sum ./*.md
+    [ ! -e ./terragrunt.hcl ] || sha1sum ./*.hcl
+  ) |
+  sha1sum |
+  sed 's/ .*//'
 }
 
 test() {
@@ -49,31 +61,13 @@ test() {
       taho 2>&1 | sed "s/^/Test $2: /"
       echo ''
 
-      result1="$(
-        (
-          [ ! -e ./main.tfvars ] || sha1sum ./*.tfvars
-          [ ! -e ./main.tf ] || sha1sum ./*.tf
-          [ ! -e ./README.md ] || sha1sum ./*.md
-        ) |
-        sha1sum |
-        sed 's/ .*//'
-      )"
-
+      result1="$(get_sha1sum)"
       if [[ "$expected" != "$result1" ]]; then
         >&2 echo "Test $2 failed; got $result1"
         exit 1
       fi
 
-      result2="$(
-        (
-          [ ! -e ./main.tfvars ] || sha1sum ./*.tfvars
-          [ ! -e ./main.tf ] || sha1sum ./*.tf
-          [ ! -e ./README.md ] || sha1sum ./*.md
-        ) |
-        sha1sum |
-        sed 's/ .*//'
-      )"
-
+      result2="$(get_sha1sum)"
       if [[ "$result1" != "$result2" ]]; then
         >&2 echo "Test $1 failed because result1 != result2"
         exit 1

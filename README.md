@@ -2,18 +2,12 @@
 
 A tool to make Tofu and Terraform code pretty.
 
-## About the name
+## About the Name
 
 Taho is a dessert made with tofu.
 
 Taho is also the name of the command line tool we provide to format Tofu and
 Terraform modules.
-
-## Current state of the tool
-
-This tool is in development and has not yet reached the point where the first
-minimal viable version exists. The tool currently reports it's version as
-`0.0.0`.
 
 ## Tool Description
 
@@ -53,6 +47,10 @@ When you run this tool it is possible that your terraform files will be altered
 in ways that introduce errors and as such please make sure you are under version
 control prior to running the tool. After you run the tool make sure to test and
 review the project.
+
+## Depends on Tofu CLI
+
+This tool requires that [OpenTofu][2] is installed on the path.
 
 ## Install with Go
 
@@ -112,4 +110,5 @@ The tool can also be invoked with `-v` or `--version` to report it's version.
 taho --version
 ```
 
-[1]: https://opentofu.org/docs/language/syntax/style/
+[1]: https://opentofu.org/docs/language/syntax/style
+[2]: https://opentofu.org
