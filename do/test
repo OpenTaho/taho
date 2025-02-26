@@ -33,7 +33,7 @@ main() {
   test "$1" 20 41c57843b61db19da0fa50621fc3bf04fcf0d16f
   test "$1" 21 b33ada06a8d6f587e3d8b4285c5ba0748a34be17
   test "$1" 22 273947d6374dbfad0f41b4b7c34eba38a4475ed8
-  test "$1" 23 14103de011e176632f112c34722d58cb59e8399a
+  test "$1" 23 2b56ea36a43ba46189fe32bf0db1f53867dffdcf
 }
 
 get_sha1sum() {

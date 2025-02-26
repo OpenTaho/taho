@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -19,7 +20,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
-const version = "0.0.41"
+const version = "0.0.42"
 
 type context struct {
 	checks    []*hclwrite.Block
@@ -833,6 +834,10 @@ func sortAttributes(
 				if strings.HasPrefix(strings.TrimLeft(line, " "),
 					fmt.Sprintf("%s = ", key)) {
 
+					regex, err := regexp.Compile(`^[A-Za-z0-9_-]$`)
+					if err != nil {
+						panic(err)
+					}
 					if strings.HasSuffix(line, "= {") {
 						lines3 := lines2[n+1 : len(lines2)-1]
 						for k := range lines3 {
@@ -842,7 +847,10 @@ func sortAttributes(
 								key = strings.Trim(line[0:eidx-1], " ")
 								key = strings.TrimPrefix(key, "\"")
 								key = strings.TrimSuffix(key, "\"")
-								line = "    " + key + " " + line[eidx:]
+								matched := regex.MatchString(key)
+								if matched {
+									line = "    " + key + " " + line[eidx:]
+								}
 								lines3[k] = line
 							}
 						}
