@@ -48,9 +48,9 @@ in ways that introduce errors and as such please make sure you are under version
 control prior to running the tool. After you run the tool make sure to test and
 review the project.
 
-## Depends on Tofu CLI
+## Depends on Tofu or Terraform CLI
 
-This tool requires that [OpenTofu][2] is installed on the path.
+This tool requires that [OpenTofu][2] or [Terraform][3] is installed on the path.
 
 ## Install with Go
 
@@ -112,3 +112,4 @@ taho --version
 
 [1]: https://opentofu.org/docs/language/syntax/style
 [2]: https://opentofu.org
+[3]: https://developer.hashicorp.com/terraform/install

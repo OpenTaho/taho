@@ -15,12 +15,13 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
 )
 
-const version = "0.0.42"
+const version = "0.0.43"
 
 type context struct {
 	checks    []*hclwrite.Block
@@ -496,7 +497,16 @@ func rewriteTfVars(ctx *context, filename string) {
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	cmd.Run()
+	cmdErr := cmd.Run()
+	if cmdErr != nil {
+		cmd = exec.Command("terraform", "fmt", temp3)
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+		cmdErr = cmd.Run()
+		if cmdErr != nil {
+			panic(cmdErr)
+		}
+	}
 
 	fmtLines, _ := readLines(temp3, "")
 
@@ -522,7 +532,9 @@ func rewriteTfVars(ctx *context, filename string) {
 
 // Run the program once.
 func run(ctx *context) {
-	ctx.tempDir = fmt.Sprintf(".terraform/taho/%d-%d", ctx.level, num(ctx))
+	home := os.Getenv("HOME")
+	uuid := uuid.New().String()
+	ctx.tempDir = fmt.Sprintf("%s/.taho/%s/%d-%d", home, uuid, ctx.level, num(ctx))
 	_, err := os.Stat(ctx.tempDir)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
