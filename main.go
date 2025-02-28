@@ -21,7 +21,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
-const version = "0.0.43"
+const version = "0.0.44"
 
 type context struct {
 	checks    []*hclwrite.Block
@@ -267,8 +267,10 @@ func removeTrailingComments(ctx *context,
 	keyPrefix := "  " + key + " = "
 	inspan := false
 	inblock := false
+	hasHeredoc := false
 	for s.Scan() {
 		line := s.Text()
+		hasHeredoc = hasHeredoc || strings.Contains(line, "= <<")
 		if fixOtherComments {
 			if strings.HasPrefix(line, blockPrefix) {
 				fixOtherComments = key != ""
@@ -316,7 +318,6 @@ func removeTrailingComments(ctx *context,
 	}
 	lenLines := len(lines)
 	newLines := []string{}
-	mode = 0
 	strippingComments := true
 	for line := range lines {
 		text := lines[lenLines-1-line]
@@ -330,7 +331,7 @@ func removeTrailingComments(ctx *context,
 				}
 			}
 		}
-		if text != "" || mode > 1 {
+		if text != "" || hasHeredoc {
 			newLines = append(newLines, text)
 		}
 	}
