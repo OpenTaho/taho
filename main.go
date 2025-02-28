@@ -21,7 +21,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
-const version = "0.0.44"
+const version = "0.0.45"
 
 type context struct {
 	checks    []*hclwrite.Block
@@ -230,7 +230,7 @@ func readBlockX(temp string) (block *hclwrite.Block, err error) {
 	return tempBlock, nil
 }
 
-func readLines(filename string, stopPrefix string) ([]string, int) {
+func readLines(filename string, stopPrefix string) ([]string, int, bool) {
 	lines := []string{}
 	open, err := os.Open(filename)
 	if err != nil {
@@ -238,15 +238,17 @@ func readLines(filename string, stopPrefix string) ([]string, int) {
 	}
 	s := bufio.NewScanner(open)
 	s.Split(bufio.ScanLines)
+	hasHeredoc := false
 	for s.Scan() {
 		text := s.Text()
+		hasHeredoc = hasHeredoc || strings.Contains(text, "= <<")
 		lines = append(lines, text)
 		if !strings.HasPrefix(text, stopPrefix) {
 			break
 		}
 	}
 	start := len(lines) - 1
-	return lines, start
+	return lines, start, hasHeredoc
 }
 
 func removeTrailingComments(ctx *context,
@@ -267,10 +269,8 @@ func removeTrailingComments(ctx *context,
 	keyPrefix := "  " + key + " = "
 	inspan := false
 	inblock := false
-	hasHeredoc := false
 	for s.Scan() {
 		line := s.Text()
-		hasHeredoc = hasHeredoc || strings.Contains(line, "= <<")
 		if fixOtherComments {
 			if strings.HasPrefix(line, blockPrefix) {
 				fixOtherComments = key != ""
@@ -331,7 +331,7 @@ func removeTrailingComments(ctx *context,
 				}
 			}
 		}
-		if text != "" || hasHeredoc {
+		if text != "" {
 			newLines = append(newLines, text)
 		}
 	}
@@ -354,6 +354,12 @@ func removeTrailingComments(ctx *context,
 
 func rewriteBlock(
 	ctx *context, block *hclwrite.Block, metaMode bool) *hclwrite.Block {
+
+	temp1 := writeBlock(ctx, block)
+	_, _, hasHeredoc := readLines(temp1, "")
+	if hasHeredoc {
+		return block
+	}
 
 	detatchedNestedBlocks := make([]*hclwrite.Block, 0)
 	bodyBlocks := block.Body().Blocks()
@@ -471,7 +477,7 @@ func rewriteBlocks(ctx *context, blocks []*hclwrite.Block,
 }
 
 func rewriteTfVars(ctx *context, filename string) {
-	lines, _ := readLines(filename, "")
+	lines, _, _ := readLines(filename, "")
 
 	mapLines := []string{"map {"}
 	mapLines = append(mapLines, lines...)
@@ -487,7 +493,7 @@ func rewriteTfVars(ctx *context, filename string) {
 	mapBlock = rewriteBlock(ctx, mapBlock, false)
 
 	temp2 := writeBlock(ctx, mapBlock)
-	mapLines, _ = readLines(temp2, "")
+	mapLines, _, _ = readLines(temp2, "")
 	newLines := mapLines[1 : len(mapLines)-1]
 
 	temp3 := fmt.Sprintf("%s/%d.tf", ctx.tempDir, num(ctx))
@@ -509,7 +515,7 @@ func rewriteTfVars(ctx *context, filename string) {
 		}
 	}
 
-	fmtLines, _ := readLines(temp3, "")
+	fmtLines, _, _ := readLines(temp3, "")
 
 	mismatch := false
 	if len(fmtLines) == len(lines) {
@@ -626,7 +632,7 @@ func run(ctx *context) {
 					if errW != nil {
 						panic(errW)
 					}
-					lines1, _ := readLines(filename, "")
+					lines1, _, _ := readLines(filename, "")
 					newLines := slices.Concat([]string{"terragrunt {"}, lines1, []string{"}"})
 					temp1 := fmt.Sprintf("%s/%d.hcl", ctx.tempDir, num(ctx))
 					writeLines(temp1, newLines)
@@ -634,7 +640,7 @@ func run(ctx *context) {
 					block := file.Body().Blocks()[0]
 					block = rewriteBlock(ctx, block, false)
 					temp2 := writeBlock(ctx, block)
-					lines2, _ := readLines(temp2, "")
+					lines2, _, _ := readLines(temp2, "")
 					lines2 = slices.Delete(lines2, 0, 1)
 					lines2 = slices.Delete(lines2, len(lines2)-1, len(lines2))
 					lines3 := []string{}
@@ -763,7 +769,7 @@ func sortAttributes(
 
 	block = removeTrailingComments(ctx, block, len(keys) == 0, "")
 	temp := writeBlock(ctx, block)
-	lines, start := readLines(temp, "#")
+	lines, start, _ := readLines(temp, "#")
 
 	multiLineKeys := []string{}
 	multiLineMetaKeys := []string{}
@@ -786,7 +792,7 @@ func sortAttributes(
 
 		tempBlock = removeTrailingComments(ctx, tempBlock, true, key)
 
-		lines2, _ := readLines(writeBlock(ctx, tempBlock), "")
+		lines2, _, _ := readLines(writeBlock(ctx, tempBlock), "")
 		isMultiLine := ifMultiline(lines2)
 		_, metaKey := metaArguments[key]
 		if isMultiLine {
@@ -836,7 +842,7 @@ func sortAttributes(
 		tempBlock = removeTrailingComments(ctx, tempBlock, true, keys[0])
 
 		temp := writeBlock(ctx, tempBlock)
-		lines2, _ := readLines(temp, "")
+		lines2, _, _ := readLines(temp, "")
 		isMultiLine := ifMultiline(lines2)
 
 		if isMultiLine {
@@ -876,7 +882,7 @@ func sortAttributes(
 						mapBlock, err := readBlock(temp3)
 						if err == nil {
 							mapBlock = rewriteBlock(ctx, mapBlock, false)
-							body, _ = readLines(writeBlock(ctx, mapBlock), "")
+							body, _, _ = readLines(writeBlock(ctx, mapBlock), "")
 							n1 := 0
 							lines3 := []string{}
 							for {
@@ -892,7 +898,7 @@ func sortAttributes(
 							writeLines(temp5, lines3)
 							mapBlock, err = readBlock(temp5)
 							if err == nil {
-								lines4, _ = readLines(writeBlock(ctx, mapBlock), "")
+								lines4, _, _ = readLines(writeBlock(ctx, mapBlock), "")
 							}
 						}
 					}

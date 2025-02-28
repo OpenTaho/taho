@@ -1,6 +1,6 @@
 variable "used_2" {
-  type = string
   description = "test"
+  type = string
 
   default = <<-EOF
     test
