@@ -21,7 +21,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
-const version = "0.0.45"
+const version = "0.0.46"
 
 type context struct {
 	checks    []*hclwrite.Block
@@ -208,6 +208,128 @@ func parseConfig(filename string) ([]byte, *hclwrite.File, hcl.Diagnostics) {
 	pos := hcl.InitialPos
 	file, diag := hclwrite.ParseConfig(fileBytes, filename, pos)
 	return fileBytes, file, diag
+}
+
+func processFile(filename string, ctx *context, hasTF bool, specialNames map[string]bool) bool {
+	isOverride := strings.HasPrefix(filename, "_")
+	isTF := strings.HasSuffix(filename, ".tf")
+	isHCL := strings.HasSuffix(filename, ".hcl") && filename != ".terraform.lock.hcl"
+
+	if !isOverride {
+		if strings.HasSuffix(filename, ".tfvars") {
+			rewriteTfVars(ctx, filename)
+
+		} else if isTF || isHCL {
+			hasTF = hasTF || isTF
+			_, isSpecial := specialNames[filename]
+
+			fileBytes, file, diag := parseConfig(filename)
+			if diag.HasErrors() {
+				panic("HasErrors")
+			}
+
+			blocks := []*hclwrite.Block{}
+			for _, block := range file.Body().Blocks() {
+				if isHCL {
+					blocks = append(blocks, block)
+				} else {
+					if block.Type() == "check" {
+						ctx.checks = append(ctx.imports, block)
+					} else if block.Type() == "import" {
+						ctx.imports = append(ctx.imports, block)
+					} else if block.Type() == "terraform" {
+						ctx.terraform = append(ctx.terraform, block)
+					} else if block.Type() == "provider" {
+						ctx.providers = append(ctx.providers, block)
+					} else if block.Type() == "variable" {
+						ctx.variables = append(ctx.variables, block)
+					} else if block.Type() == "output" {
+						ctx.outputs = append(ctx.outputs, block)
+					} else if isSpecial {
+						ctx.main = append(ctx.main, block)
+					} else {
+						blocks = append(blocks, block)
+					}
+				}
+			}
+
+			var newFile *hclwrite.File
+			if isTF {
+				newFile = hclwrite.NewFile()
+			} else {
+				_, file, diag := parseConfig(filename)
+				newFile = file
+				if diag != nil {
+					panic("Bad file")
+				}
+				fileBlocks := file.Body().Blocks()
+				for _, block := range fileBlocks {
+					newFile.Body().RemoveBlock(block)
+				}
+				newBytes := newFile.Bytes()
+				errW := os.WriteFile(filename, newBytes, 0644)
+				if errW != nil {
+					panic(errW)
+				}
+				lines1, _, _ := readLines(filename, "")
+				newLines := slices.Concat([]string{"terragrunt {"}, lines1, []string{"}"})
+				temp1 := fmt.Sprintf("%s/%d.hcl", ctx.tempDir, num(ctx))
+				writeLines(temp1, newLines)
+				_, file, _ = parseConfig(temp1)
+				block := file.Body().Blocks()[0]
+				block = rewriteBlock(ctx, block, false)
+				temp2 := writeBlock(ctx, block)
+				lines2, _, _ := readLines(temp2, "")
+				lines2 = slices.Delete(lines2, 0, 1)
+				lines2 = slices.Delete(lines2, len(lines2)-1, len(lines2))
+				lines3 := []string{}
+				for _, line := range lines2 {
+					line = strings.TrimPrefix(line, "  ")
+					lines3 = append(lines3, line)
+				}
+				if len(lines3) > 0 {
+					lines3 = append(lines3, "")
+				}
+				temp3 := fmt.Sprintf("%s/%d.hcl", ctx.tempDir, num(ctx))
+				writeLines(temp3, lines3)
+				_, file, _ = parseConfig(temp3)
+				newFile = file
+			}
+
+			blocks = rewriteBlocks(ctx, blocks, true)
+			keys := getAttributeKeys(newFile.Body().Attributes())
+			keysLen := len(keys)
+			blocksLen := len(blocks)
+			newFileBody := newFile.Body()
+			for i, block := range blocks {
+				newFileBody.AppendBlock(block)
+				if i < blocksLen-1 {
+					newFileBody.AppendNewline()
+				}
+			}
+			newBytes := newFile.Bytes()
+
+			if !isSpecial {
+				if !bytes.Equal(fileBytes, newBytes) {
+					text := fmt.Sprintf("File mismatch: \"%s\"", filename)
+					out(ctx, text)
+					setErrExit(ctx)
+				}
+				if blocksLen == 0 && keysLen == 0 {
+					errR := os.Remove(filename)
+					if errR != nil {
+						panic(errR)
+					}
+				} else {
+					errW := os.WriteFile(filename, newBytes, 0644)
+					if errW != nil {
+						panic(errW)
+					}
+				}
+			}
+		}
+	}
+	return hasTF
 }
 
 func readBlock(filename string) (*hclwrite.Block, error) {
@@ -569,126 +691,15 @@ func run(ctx *context) {
 		panic(err)
 	}
 
+	// If we have a terraform.tofu we do not process terraform.tf.
+	tofuStat, _ := os.Stat("terraform.tofu")
+	tofu := tofuStat != nil
+
 	hasTF := false
 	for _, entry := range entries {
 		filename := entry.Name()
-		isOverride := strings.HasPrefix(filename, "_")
-		isTF := strings.HasSuffix(filename, ".tf")
-		isHCL := strings.HasSuffix(filename, ".hcl") && filename != ".terraform.lock.hcl"
-
-		if !isOverride {
-			if strings.HasSuffix(filename, ".tfvars") {
-				rewriteTfVars(ctx, filename)
-
-			} else if isTF || isHCL {
-				hasTF = hasTF || isTF
-				_, isSpecial := specialNames[filename]
-
-				fileBytes, file, diag := parseConfig(filename)
-				if diag.HasErrors() {
-					panic("HasErrors")
-				}
-
-				blocks := []*hclwrite.Block{}
-				for _, block := range file.Body().Blocks() {
-					if isHCL {
-						blocks = append(blocks, block)
-					} else {
-						if block.Type() == "check" {
-							ctx.checks = append(ctx.imports, block)
-						} else if block.Type() == "import" {
-							ctx.imports = append(ctx.imports, block)
-						} else if block.Type() == "terraform" {
-							ctx.terraform = append(ctx.terraform, block)
-						} else if block.Type() == "provider" {
-							ctx.providers = append(ctx.providers, block)
-						} else if block.Type() == "variable" {
-							ctx.variables = append(ctx.variables, block)
-						} else if block.Type() == "output" {
-							ctx.outputs = append(ctx.outputs, block)
-						} else if isSpecial {
-							ctx.main = append(ctx.main, block)
-						} else {
-							blocks = append(blocks, block)
-						}
-					}
-				}
-
-				var newFile *hclwrite.File
-				if isTF {
-					newFile = hclwrite.NewFile()
-				} else {
-					_, file, diag := parseConfig(filename)
-					newFile = file
-					if diag != nil {
-						panic("Bad file")
-					}
-					fileBlocks := file.Body().Blocks()
-					for _, block := range fileBlocks {
-						newFile.Body().RemoveBlock(block)
-					}
-					newBytes := newFile.Bytes()
-					errW := os.WriteFile(filename, newBytes, 0644)
-					if errW != nil {
-						panic(errW)
-					}
-					lines1, _, _ := readLines(filename, "")
-					newLines := slices.Concat([]string{"terragrunt {"}, lines1, []string{"}"})
-					temp1 := fmt.Sprintf("%s/%d.hcl", ctx.tempDir, num(ctx))
-					writeLines(temp1, newLines)
-					_, file, _ = parseConfig(temp1)
-					block := file.Body().Blocks()[0]
-					block = rewriteBlock(ctx, block, false)
-					temp2 := writeBlock(ctx, block)
-					lines2, _, _ := readLines(temp2, "")
-					lines2 = slices.Delete(lines2, 0, 1)
-					lines2 = slices.Delete(lines2, len(lines2)-1, len(lines2))
-					lines3 := []string{}
-					for _, line := range lines2 {
-						line = strings.TrimPrefix(line, "  ")
-						lines3 = append(lines3, line)
-					}
-					if len(lines3) > 0 {
-						lines3 = append(lines3, "")
-					}
-					temp3 := fmt.Sprintf("%s/%d.hcl", ctx.tempDir, num(ctx))
-					writeLines(temp3, lines3)
-					_, file, _ = parseConfig(temp3)
-					newFile = file
-				}
-
-				blocks = rewriteBlocks(ctx, blocks, true)
-				keys := getAttributeKeys(newFile.Body().Attributes())
-				keysLen := len(keys)
-				blocksLen := len(blocks)
-				newFileBody := newFile.Body()
-				for i, block := range blocks {
-					newFileBody.AppendBlock(block)
-					if i < blocksLen-1 {
-						newFileBody.AppendNewline()
-					}
-				}
-				newBytes := newFile.Bytes()
-
-				if !isSpecial {
-					if !bytes.Equal(fileBytes, newBytes) {
-						text := fmt.Sprintf("File mismatch: \"%s\"", filename)
-						out(ctx, text)
-						setErrExit(ctx)
-					}
-					if blocksLen == 0 && keysLen == 0 {
-						errR := os.Remove(filename)
-						if errR != nil {
-							panic(errR)
-						}
-					} else {
-						errW := os.WriteFile(filename, newBytes, 0644)
-						if errW != nil {
-							panic(errW)
-						}
-					}
-				}
-			}
+		if !(filename == "terraform.tf" && tofu) {
+			hasTF = processFile(filename, ctx, hasTF, specialNames)
 		}
 	}
 
@@ -707,7 +718,10 @@ func run(ctx *context) {
 		writeTfFile(ctx, false, "providers.tf", ctx.providers)
 		writeTfFile(ctx, false, "variables.tf", ctx.variables)
 		writeTfFile(ctx, true, "main.tf", ctx.main)
-		writeTfFile(ctx, true, "terraform.tf", ctx.terraform)
+
+		if !tofu {
+			writeTfFile(ctx, true, "terraform.tf", ctx.terraform)
+		}
 	}
 
 	if !strings.HasSuffix(ctx.version, "-0") {
