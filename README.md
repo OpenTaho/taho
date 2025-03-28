@@ -19,10 +19,10 @@ This tool initializes, checks and/or restructures Terraform module directories
 such that the code is structured as follows.
 
 1. `main.tf` exists
-2. `variables.tf` has only variable type blocks
-3. `outputs.tf` has only output type blocks
-4. `terraform.tf` has only terraform type blocks
-5. `providers.tf` has only terraform type blocks
+2. `variables.tf` has only `variable` type blocks
+3. `outputs.tf` has only `output` type blocks
+4. `terraform.tf` has only `terraform` type blocks
+5. `providers.tf` has only `provider` type blocks
 6. `*.hcl` files are formatted such that blocks follow attributes.
 7. When arguments and nested blocks exist within a block body,
    arguments are placed before blocks below them. One blank line to separate the

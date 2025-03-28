@@ -1,4 +1,6 @@
+.taho.main.json
 .terraform
 .terraform.lock.hcl
+.vscode
 /release
 terraform.tfstate
