@@ -8,7 +8,7 @@ import (
 	"github.com/hashicorp/hcl/v2/hclwrite"
 )
 
-const version = "0.0.47"
+const version = "0.0.48"
 
 type MainConfig struct {
 	WorkingDirectory string `json:"workingDirectory"`
@@ -1075,7 +1075,7 @@ func (t Taho) ReadLines(filename string, stopPrefix string) ([]string, int, bool
 	hasHeredoc := false
 	for s.Scan() {
 		text := s.Text()
-		hasHeredoc = hasHeredoc || t.proxy.Contains(text, "= <<")
+		hasHeredoc = hasHeredoc || t.proxy.Contains(text, "<<")
 		lines = append(lines, text)
 		if !t.proxy.HasPrefix(text, stopPrefix) {
 			break

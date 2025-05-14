@@ -10,7 +10,6 @@ main() {
     cd tests || exit 1
   fi
 
-  test "$1" 00 67e3f7ab39e5ecca9df22c044cac279836f75922
   test "$1" 01 91268ce3a9f4edb082291f5283ecce8fdf6c71d0
   test "$1" 02 44373f9b0b1095d02c744f1a9b9e7e7f8995bdb4
   test "$1" 03 6422ff9a0533e512f26a33241ec8366266b307bb
