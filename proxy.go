@@ -256,6 +256,10 @@ func (p *Proxy) ScanLines() func(data []byte, atEOF bool) (advance int, token []
 	return bufio.ScanLines
 }
 
+func (p *Proxy) SliceContains(array []string, value string) bool {
+	return slices.Contains(array, value)
+}
+
 func (p *Proxy) Sort(x []string) {
 	slices.Sort(x)
 }

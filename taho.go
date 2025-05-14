@@ -8,7 +8,7 @@ import (
 	"github.com/hashicorp/hcl/v2/hclwrite"
 )
 
-const version = "0.0.48"
+const version = "0.0.49"
 
 type MainConfig struct {
 	WorkingDirectory string `json:"workingDirectory"`
@@ -35,9 +35,19 @@ type Taho struct {
 }
 
 type TahoConfig struct {
-	Backend   bool `json:"backend"`
-	Terraform bool `json:"terraform"`
-	Provider  bool `json:"provider"`
+	Backend   bool     `json:"backend"`
+	Ignore    []string `json:"ignore"`
+	Init      bool     `json:"init"`
+	Provider  bool     `json:"provider"`
+	Terraform bool     `json:"terraform"`
+}
+
+func (t *Taho) AdjustBlockTypeForSorting(typeName string) string {
+	if typeName == "locals" {
+		return "0-" + typeName
+	} else {
+		return "1-" + typeName
+	}
 }
 
 func (t *Taho) GetAttributeKeys(attributes map[string]*hclwrite.Attribute) []string {
@@ -59,7 +69,7 @@ func (t *Taho) GetTypeAndLabels(newBlock *hclwrite.Block) string {
 
 func (t *Taho) HandleArgs() {
 	if t.proxy.HasArgs() {
-		if !(t.HandleHelpArg() || t.HandleRecursiveArg() || t.HandleVersionArg()) {
+		if !(t.HandleInitArg() || t.HandleHelpArg() || t.HandleRecursiveArg() || t.HandleVersionArg()) {
 			t.proxy.Fatalf("Unable to handle argumet \"%s\"", t.proxy.args[1:][0])
 		}
 	}
@@ -75,10 +85,20 @@ func (t *Taho) HandleHelpArg() bool {
 			"\n" +
 			"Options: are as follows\n" +
 			"\n" +
-			"-v, --version\n" +
+			"-h, --help\n" +
+			"-i, --init\n" +
 			"-r, --recursive\n" +
-			"-h, --help")
+			"-v, --version")
 	t.complete = true
+	return true
+}
+
+func (t *Taho) HandleInitArg() bool {
+	if !(t.proxy.HasArg("i", "init")) {
+		return false
+	}
+
+	t.config.Init = true
 	return true
 }
 
@@ -113,25 +133,46 @@ func (t *Taho) HandleRecursiveArg() bool {
 
 	for n := range list {
 		dir := list[n]
-		t.proxy.Chdir(dir)
+		if !t.proxy.SliceContains(t.config.Ignore, dir) {
+			t.proxy.Chdir(dir)
 
-		if t.IsTestable() {
-			if n > 0 {
-				t.Out("")
+			if t.config.Init {
+				tfCmd := "init"
+				cmd := t.proxy.Command("tofu", tfCmd)
+				cmd.Stdout = t.proxy.NewBuffer()
+				cmd.Stderr = t.proxy.NewBuffer()
+				cmdErr := cmd.Run()
+
+				if cmdErr != nil {
+					cmd = t.proxy.Command("terraform", tfCmd)
+					cmd.Stdout = t.proxy.NewBuffer()
+					cmd.Stderr = t.proxy.NewBuffer()
+					cmdErr = cmd.Run()
+
+					if cmdErr != nil {
+						panic(cmdErr)
+					}
+				}
 			}
-			t.Out(dir)
-			if dir == "." {
-				dir = ""
+
+			if t.IsTestable() {
+				if n > 0 {
+					t.Out("")
+				}
+				t.Out(dir)
+				if dir == "." {
+					dir = ""
+				}
 			}
-		}
 
-		t2 := Taho{
-			version: version,
-			proxy:   t.proxy,
-			config:  t.config,
-		}
+			t2 := Taho{
+				version: version,
+				proxy:   t.proxy,
+				config:  t.config,
+			}
 
-		t2.RunAsNeeded()
+			t2.RunAsNeeded()
+		}
 	}
 
 	return true
@@ -182,14 +223,18 @@ func (t *Taho) LoadConfig() {
 	config.Backend = true
 	config.Terraform = true
 	config.Provider = true
+	t.config = &config
+	t.LoadConfigFile(os.Getenv("HOME")+"/.taho.json", config)
+	t.LoadConfigFile(".taho.json", config)
+}
 
-	tahoJson := ".taho.json"
-	configFile, err := os.Open(tahoJson)
+func (t *Taho) LoadConfigFile(filename string, config TahoConfig) {
+	configFile, err := os.Open(filename)
 	if err == nil {
 		jsonParser := json.NewDecoder(configFile)
 		jsonParser.Decode(&config)
+		t.config = &config
 	}
-	t.config = &config
 }
 
 func (t *Taho) Num() int {
@@ -543,7 +588,9 @@ func (t *Taho) RewriteBlocks(blocks []*hclwrite.Block,
 	metaMode bool) []*hclwrite.Block {
 
 	blockCmp := func(a *hclwrite.Block, b *hclwrite.Block) int {
-		typeOrder := t.proxy.Compare(a.Type(), b.Type())
+		aTypeName := t.AdjustBlockTypeForSorting(a.Type())
+		bTypeName := t.AdjustBlockTypeForSorting(b.Type())
+		typeOrder := t.proxy.Compare(aTypeName, bTypeName)
 		if typeOrder != 0 {
 			return typeOrder
 		}
@@ -559,6 +606,7 @@ func (t *Taho) RewriteBlocks(blocks []*hclwrite.Block,
 		if len(bLabels) > 0 {
 			bLabel0 = bLabels[0]
 		}
+
 		label0Order := t.proxy.Compare(aLabel0, bLabel0)
 		if label0Order != 0 {
 			return label0Order
@@ -612,13 +660,14 @@ func (t *Taho) RewriteTfVars(filename string) {
 	temp3 := t.proxy.Sprintf("%s/%d.tf", t.tempDir, t.Num())
 	t.WriteLines(temp3, newLines)
 
-	cmd := t.proxy.Command("tofu", "fmt", temp3)
+	tfCmd := "fmt"
+	cmd := t.proxy.Command("tofu", tfCmd, temp3)
 	cmd.Stdout = t.proxy.NewBuffer()
 	cmd.Stderr = t.proxy.NewBuffer()
 	cmdErr := cmd.Run()
 
 	if cmdErr != nil {
-		cmd = t.proxy.Command("terraform", "fmt", temp3)
+		cmd = t.proxy.Command("terraform", tfCmd, temp3)
 		cmd.Stdout = t.proxy.NewBuffer()
 		cmd.Stderr = t.proxy.NewBuffer()
 		cmdErr = cmd.Run()
@@ -800,7 +849,6 @@ func (t *Taho) SortAttributes(block *hclwrite.Block,
 		"for_each":   true,
 		"provider":   true,
 		"providers":  true,
-		"source":     true,
 	}
 
 	if block.Type() == "locals" {
@@ -809,6 +857,7 @@ func (t *Taho) SortAttributes(block *hclwrite.Block,
 
 	if block.Type() == "module" {
 		metaArguments["version"] = true
+		metaArguments["source"] = true
 	}
 
 	if !metaArgMode {
