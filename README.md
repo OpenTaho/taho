@@ -6,17 +6,45 @@ A tool to make Tofu and Terraform code pretty.
 
 Taho is a dessert made with tofu.
 
-Taho is also the name of the command line tool we provide to format Tofu and
-Terraform modules.
+Taho is also the name of this command line tool.
 
-## Tool Description
+## Overview
 
-This tool is inspired by the [OpenTofu Style Conventions][1], as well as input
-from online communities related to Tofu and Terraform, and opinions of those
-contribute to this tool.
+The Taho CLI supports Site Reliability Engineers working with Terraform,
+OpenTofu, Terragrunt, and AWS. Our CLI provides a higher level wrapper around
+Terragrunt, a very powerful formatting command for HCL code, and a managed
+Docker based environment with Terraform, OpenTofu, AWS, and related tools.
 
-This tool initializes, checks and/or restructures Terraform module directories
-such that the code is structured as follows.
+Our CLI provides the following commands:
+
+|Command  |Description                                |
+|---------|-------------------------------------------|
+|[Apply]  |Applies Terragrunt units                   |
+|[Check]  |Checks Terragrunt units                    |
+|[Destroy]|Destroys Terragrunt units                  |
+|[Disable]|Disables Terragrunt units                  |
+|[Docker] |Starts a Docker managed container          |
+|[Enable] |Enables Terragrunt units                   |
+|[Format] |Disables Terragrunt units                  |
+|[Install]|Installs our go binary and scripting layers|
+|[Lint]   |Lint for various tools                     |
+|[List]   |Lists Terragrunt units                     |
+|[Version]|Shows the version of our tool              |
+
+[Install]: #install-command
+[Version]: #version-command
+[Format]: #format-command
+
+## Format Command
+
+Our `fmt` command is inspired by [Terraform Best Practices][tf-guide], [OpenTofu
+Style Conventions][tu-guide], [Terragrunt Best Practices][tg-guide], as well as
+input from online communities related to Tofu and Terraform, and opinions of
+those who contribute to this tool. Our format command goes beyond the simple
+formatting provided by other tools.
+
+This command formats Terraform module directories such that the code is
+structured as follows.
 
 1. `main.tf` exists
 2. `variables.tf` has only `variable` type blocks
@@ -48,60 +76,12 @@ in ways that introduce errors and as such please make sure you are under version
 control prior to running the tool. After you run the tool make sure to test and
 review the project.
 
-## Depends on Tofu or Terraform CLI
-
-This tool requires that [OpenTofu][2] or [Terraform][3] is installed on the path.
-
-## Install with Go
-
-The tool can installed using Go.
+## Install Command
 
 ```zsh
 git clone https://github.com/OpenTaho/taho.git
 cd taho
-go install
-```
-
-## Install binary for MacOS
-
-A binary can be installed for MacOS.
-
-```zsh
-mkdir -p "$HOME/bin"
-
-curl -s -L -o "$HOME/bin/taho" \
-  https://github.com/OpenTaho/taho/releases/download/v0.0.40/taho-0.0.40-darwin-$(arch)"
-
-chmod +x "$HOME/bin/taho"
-```
-
-## Install binary for Linux AMD64
-
-A binary can be installed for Linux.
-
-```zsh
-mkdir -p "$HOME/bin"
-
-curl -s -L -o "$HOME/bin/taho" \
-  https://github.com/OpenTaho/taho/releases/download/v0.0.40/taho-0.0.40-linux-amd64"
-
-chmod +x "$HOME/bin/taho"
-```
-
-## Install binary for Linux ARM64
-
-The procedure to install for Linux ARM 64 is essentially the same as the
-procedure for AMD64 but obvoiusly you must use the suffix `-arm64` for the URL.
-
-## Usage
-
-The default behavior of the tool is to fix the content of the current directory.
-If changes are made the tool will output messages using the standard error
-stream. The exit code will be  `1` if changes are made or `0` if no changes are
-made.
-
-```zsh
-taho
+sudo ./script install
 ```
 
 The tool can also be invoked with `-v` or `--version` to report it's version.
@@ -110,6 +90,11 @@ The tool can also be invoked with `-v` or `--version` to report it's version.
 taho --version
 ```
 
-[1]: https://opentofu.org/docs/language/syntax/style
-[2]: https://opentofu.org
-[3]: https://developer.hashicorp.com/terraform/install
+## Version Command
+
+The version command shows the version of the Taho CLI. This command also has
+`-v` as an alias.
+
+[tu-guide]: https://opentofu.org/docs/language/syntax/style
+[tf-guide]: https://developer.hashicorp.com/terraform/language/style
+[tg-guide]: https://docs.gruntwork.io/2.0/docs/overview/concepts/labels-tags

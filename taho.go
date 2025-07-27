@@ -8,7 +8,7 @@ import (
 	"github.com/hashicorp/hcl/v2/hclwrite"
 )
 
-const version = "0.0.49"
+const version = "main"
 
 type MainConfig struct {
 	WorkingDirectory string `json:"workingDirectory"`

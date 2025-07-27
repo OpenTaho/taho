@@ -1,4 +1,4 @@
-module github.com/OpenTaho/taho
+module github.com/OpenTaho/taho-go
 
 go 1.23.3
 
