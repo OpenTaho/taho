@@ -38,6 +38,11 @@ aliases() {
   ); do
     echo "alias \"taho-aws-$profile\"=\". <(taho aws-runas $profile)\""
   done
+
+  if [ -e .taho.sh ]; then
+    source .taho.sh
+  fi
+  echo "$TAHO_ALIASES"
 }
 
 #######################################
@@ -783,7 +788,7 @@ main() {
   fi
   local regx="^\|\`$TAHO_REGX/"
   TAHO_UNITS="$(
-    grep -E "$regx" README.md |
+    grep -E "$regx" "$(git rev-parse --show-toplevel)/README.md" |
     sed 's/^|`//' |
     sed 's/`.*//'
   )"
