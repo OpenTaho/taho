@@ -67,23 +67,27 @@ column that is ignored by the tool.
 
 Our CLI provides the following subcommands:
 
-|Command  |Description                                  |
-|---------|---------------------------------------------|
-|[Apply]  |Applies infrastructure units                 |
-|[Check]  |Checks infrastructure units                  |
-|[Clean]  |Removes Terraform and Terragrunt cache files |
-|[Destroy]|Destroys infrastructure units                |
-|[Disable]|Disables Terragrunt units                    |
-|[Enable] |Enables Terragrunt units                     |
-|[Format] |Formats code                                 |
-|[Init]   |Initializes infrastructure units             |
-|[Install]|Installs our go binary and scripting layers  |
-|[Lint]   |Lint at the repository level                 |
-|[List]   |Lists infrastructure units                   |
-|[Shell]  |Starts a Docker managed container with bash  |
-|[Version]|Shows the version of our tool                |
+|Command     |Description                                  |
+|------------|---------------------------------------------|
+|[Aliases]   |Writes a script that defines useful Aliases  |
+|[Apply]     |Applies infrastructure units                 |
+|[AWS-RunAs] |AWS RunAs script output                      |
+|[Check]     |Checks infrastructure units                  |
+|[Clean]     |Removes Terraform and Terragrunt cache files |
+|[Destroy]   |Destroys infrastructure units                |
+|[Disable]   |Disables Terragrunt units                    |
+|[Enable]    |Enables Terragrunt units                     |
+|[Format]    |Formats code                                 |
+|[Init]      |Initializes infrastructure units             |
+|[Install]   |Installs our go binary and scripting layers  |
+|[Lint]      |Lint at the repository level                 |
+|[List]      |Lists infrastructure units                   |
+|[Shell]     |Starts a Docker managed container with bash  |
+|[Version]   |Shows the version of our tool                |
 
+[Aliases]: #aliases-subcommand
 [Apply]: #apply-subcommand
+[AWS-RunAs]: #aws-runas-subcommand
 [Check]: #check-subcommand
 [Clean]: #clean-subcommand
 [Destroy]: #destroy-subcommand
@@ -96,6 +100,17 @@ Our CLI provides the following subcommands:
 [Shell]: #shell-subcommand
 [Version]: #version-subcommand
 
+## Aliases Subcommand
+
+The `aliases` subcommand outputs a script that defines `taho-` prefixed aliases.
+These aliases in turn support the [AWS RunAs](#aws-runas-subcommand).
+
+On MacOS, invoke the `aliases` subcommand as follows:
+
+```zsh
+source <(taho aliases)
+```
+
 ## Apply Subcommand
 
 The `apply` subcommand performs a `terragrunt apply` for all units selected from
@@ -103,6 +118,17 @@ the enviornment list. Passing `-fitler` with a regular expression allows you to
 limit the scope to only units matching the filter. The default filter is `.*`.
 Passing `-auto-approve` is required if you wish for the apply to proceed with
 automatic approval.
+
+## AWS RunAs Subcommand
+
+The `aws-runas` subcommand outputs a script that can be used in conjunction with
+the [aws-runas][aws-runas] CLI.
+
+On MacOS, invoke the `aws-runas` command as follows:
+
+```zsh
+source <(taho aws-runas MY-AWS-RUNAS-PROFILE)
+```
 
 ## Check Subcommand
 
@@ -209,6 +235,7 @@ in ways that introduce errors and as such please make sure you are under version
 control prior to running the tool. After you run the tool make sure to test and
 review the project.
 
-[tu-guide]: https://opentofu.org/docs/language/syntax/style
-[tf-guide]: https://developer.hashicorp.com/terraform/language/style
-[tg-guide]: https://docs.gruntwork.io/2.0/docs/overview/concepts/labels-tags
+[aws-runas]: https://github.com/mmmorris1975/aws-runas
+[tu-guide]:  https://opentofu.org/docs/language/syntax/style
+[tf-guide]:  https://developer.hashicorp.com/terraform/language/style
+[tg-guide]:  https://docs.gruntwork.io/2.0/docs/overview/concepts/labels-tags

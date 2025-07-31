@@ -2,15 +2,17 @@
 #
 # Taho Script
 #
-# Executes a Taho command
+# Executes a Taho subcommand
 
 # shellcheck disable=SC1090
 # shellcheck disable=SC1091
 # shellcheck disable=SC2001
+# shellcheck disable=SC2013
 # shellcheck disable=SC2016
 # shellcheck disable=SC2059
 # shellcheck disable=SC2116
 # shellcheck disable=SC2126
+# shellcheck disable=SC2139
 
 # Setup colors
 c0='\033[0m'    # No color
@@ -21,7 +23,58 @@ c2='\033[0;31m' # Red
 export TG_NON_INTERACTIVE=true
 
 #######################################
-# Run the Console command
+# Run the aliases subcommand
+# Arguments:
+#   TBD
+# Returns
+#   0 if successfully, non-zero on error.
+#######################################
+aliases() {
+  echo "alias taho-aws-x='(rm -rf ~/.aws/.aws_saml_* > /dev/null) > /dev/null 2>&1'"
+
+  for profile in $(grep -F '[profile ' < "$HOME/.aws/config" |
+    sed 's/.* //' |
+    sed 's/\]//'
+  ); do
+    echo "alias \"taho-aws-$profile\"=\". <(taho aws-runas $profile)\""
+  done
+}
+
+#######################################
+# Run the aws-runas subcommand
+# Arguments:
+#   TBD
+# Returns
+#   0 if successfully, non-zero on error.
+#######################################
+aws_runas() {
+  local aws_runas_profile="$1"; shift
+  local time="$1"; shift
+  if [ -z "$time" ]; then
+    if [[ "$aws_runas_profile" =~ .*-pu ]]; then
+      time="4h"
+    elif [[ "$aws_runas_profile" =~ .*-ro ]]; then
+      time="4h"
+    else
+      time="1h"
+    fi
+  fi
+
+  echo 'unset AWS_ACCESS_KEY_ID'
+  echo 'unset AWS_DEFAULT_REGION'
+  echo 'unset AWS_REGION'
+  echo 'unset AWS_SECRET_ACCESS_KEY'
+  echo 'unset AWS_SECURITY_TOKEN'
+  echo 'unset AWS_SESSION_TOKEN'
+  echo ". <(aws-runas -a '$time' $aws_runas_profile)"
+  echo 'aws_id="$(aws sts get-caller-identity)"'
+  echo 'export AWS_SIMPLE_ROLENAME="$(echo "$aws_id" | jq -r .Arn 2>&1 | sed "s/.*assumed-role\///" | sed "s/@.*//")"'
+  echo 'export AWS_ACCOUNT="$(echo "$aws_id" | jq -r .Account)"'
+  echo 'export AWS_ALIAS="$(aws iam list-account-aliases | jq -r '"'"'.AccountAliases[0]'"'"')"'
+}
+
+#######################################
+# Run the Console subcommand
 # Arguments:
 #   TBD
 # Returns
@@ -80,7 +133,7 @@ shell() {
   existing_or "$HOME/.terraformrc"              'touch'
   existing_or "$PWD/.tmp/history"               'touch'
 
-  # Create a docker command
+  # Create a docker subcommand
   local d
   d='time docker run --rm -it'
   d+=' -e TAHO_DOCKER=true'
@@ -89,7 +142,7 @@ shell() {
   d+=" -v '$PWD:/workspace'"
   d+=" -v '$PWD/.tmp/history:/root/.history:rw'"
 
-  # Add volume mounts to the docker command
+  # Add volume mounts to the docker subcommand
   for x in \
     '.cache/pre-commit' \
     '.ssh/known_hosts' \
@@ -98,7 +151,7 @@ shell() {
     d+=" -v '$HOME/$x:/root/$x'"
   done
 
-  # Add rw volume mounts to the docker command
+  # Add rw volume mounts to the docker subcommand
   for x in \
     '.terraform.d/plugin-cache' \
     '.terraformrc' \
@@ -107,7 +160,7 @@ shell() {
     d+=" -v '$HOME/$x:/root/$x:rw'"
   done
 
-  # Add environment variables to the docker command
+  # Add environment variables to the docker subcommand
   for v in $(
     env |
     grep -E '^(AWS_)' |
@@ -116,7 +169,7 @@ shell() {
     d+=" -e $v"
   done
 
-  # Evaluate the docker command
+  # Evaluate the docker subcommand
   eval "$d taho './.tmp/start-$taho_id'"
   rm "./.tmp/start-$taho_id"
 }
@@ -260,7 +313,7 @@ process_unit() {
 }
 
 #######################################
-# Run the init command
+# Run the init subcommand
 # Arguments:
 #   TBD
 # Returns
@@ -331,7 +384,7 @@ tfg_run() {
 #   $3 - drift
 #   $4 - unit
 #   $5 - resource count
-#   $6 - command
+#   $6 - subcommand
 # Returns
 #   0 if successfully, non-zero on error.
 #######################################
@@ -588,7 +641,7 @@ main() {
   # Make sure that .tmp exists.
   mkdir -p "$(git rev-parse --show-toplevel)/.tmp"
 
-  # Parse the command
+  # Parse the subcommand
   local cmd
   cmd="${1:-shell}"; shift
   if [[ "$cmd" == 'install' ]]; then
@@ -599,7 +652,7 @@ main() {
     exit
   fi
 
-  # Process command (top level)
+  # Process subcommand (top level)
   local e environment filter n
   case "$cmd" in
     -v)
@@ -608,6 +661,12 @@ main() {
       ;;
     apply|check|enable|init|ls)
       e='echo'
+      ;;
+    aliases)
+      aliases "$@"
+      ;;
+    aws-runas)
+      aws_runas "$@"
       ;;
     clean)
       cd "$(git rev-parse --show-toplevel)" || exit 1
@@ -743,7 +802,7 @@ main() {
   n=0
   count="$(echo "$TAHO_UNITS" | wc -l)"
 
-  # Process the command
+  # Process the subcommand
   "$e" "$TAHO_UNITS" |
   while read -r unit; do
     n=$(( n + 1 ))
