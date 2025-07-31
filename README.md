@@ -4,15 +4,18 @@ A tool to make Tofu and Terraform code pretty.
 
 ## About the Name
 
-Taho is a dessert made with tofu.
+Taho is a dessert made with tofu. Taho is also a city in Utah known for good ski
+resorts.
 
-Taho is also the name of this command line tool.
+In addtion, Taho is the name of this subcommand line tool. The founder of the
+project simply picked the name because it goes well with OpenTofu and it is
+short.
 
 ## Overview
 
 The Taho CLI supports Site Reliability Engineers working with Terraform,
 OpenTofu, Terragrunt, and AWS. Our CLI provides a higher level wrapper around
-Terragrunt, a very powerful formatting command for HCL code, and a managed
+Terragrunt, a very powerful formatting subcommand for HCL code, and a managed
 Docker based environment with Terraform, OpenTofu, AWS, and related tools.
 
 Currently this tool is in early development. The tool is at the point where it
@@ -23,8 +26,11 @@ OpenTofu do not yet work.
 
 When using this tool with a Terragrunt you will need to add `.taho.sh` as a file
 in the root of your infrastructure repostory. The `.taho.sh` script will execute
-after the Taho command has set the `TAHO_ENVIRONMENT` environment variable based
+after the Taho subcommand has set the `TAHO_ENVIRONMENT` environment variable based
 on user input and before reading your `README.md` file or accessing AWS.
+
+Building a powerful `.taho.sh` script requires a deep undertanding of the core
+TahoCLI [script](./script).
 
 ```bash
 #!/bin/bash
@@ -57,9 +63,9 @@ column that is ignored by the tool.
 |`us-east-1/dev/unit-3`       |                              |
 ```
 
-##
+## Subcommands
 
-Our CLI provides the following commands:
+Our CLI provides the following subcommands:
 
 |Command  |Description                                  |
 |---------|---------------------------------------------|
@@ -77,53 +83,68 @@ Our CLI provides the following commands:
 |[Shell]  |Starts a Docker managed container with bash  |
 |[Version]|Shows the version of our tool                |
 
-[Apply]: #apply-command
-[Check]: #check-command
-[Clean]: #clean-command
-[Destroy]: #destroy-command
-[Install]: #install-command
-[Version]: #version-command
-[Format]: #format-command
+[Apply]: #apply-subcommand
+[Check]: #check-subcommand
+[Clean]: #clean-subcommand
+[Destroy]: #destroy-subcommand
+[Disable]: #disable-subcommand
+[Enable]: #enable-subcommand
+[Format]: #format-subcommand
+[Init]: #init-subcommand
+[Install]: #install-subcommand
+[Lint]: #lint-subcommand
+[Shell]: #shell-subcommand
+[Version]: #version-subcommand
 
-## Apply Command
+## Apply Subcommand
 
-The `apply` command performs a `terragrunt apply` for all units selected from
+The `apply` subcommand performs a `terragrunt apply` for all units selected from
 the enviornment list. Passing `-fitler` with a regular expression allows you to
 limit the scope to only units matching the filter. The default filter is `.*`.
 Passing `-auto-approve` is required if you wish for the apply to proceed with
 automatic approval.
 
-## Check Command
+## Check Subcommand
 
-The `check` command executes `terragrunt plan -lock=false` for all units
+The `check` subcommand executes `terragrunt plan -lock=false` for all units
 selected from the enviornment list. Passing `-fitler` with a regular expression
 allows you to limit the scope to only units matching the filter. The exit code
-for the Terragrunt command and a `yes` value is placed in the `DFT` column for
+for the Terragrunt subcommand and a `yes` value is placed in the `DFT` column for
 any unit that has a non-zero result _(i.e. has drifted from the planned state)_.
 
-## Clean Command
+## Clean Subcommand
 
-The `clean` command removes `.terraform` and `.terragrunt-cache` directories
+The `clean` subcommand removes `.terraform` and `.terragrunt-cache` directories
 recursivly from the repository root. Adding the `-unlock` option also removes
 `.terraform.lock.hcl` files.
 
-## Destroy Command
+## Destroy Subcommand
 
-The `destroy` command performs a `terragrunt destroy` for all units selected
+The `destroy` subcommand performs a `terragrunt destroy` for all units selected
 from the enviornment list. Passing `-fitler` with a regular expression allows
 you to limit the scope to only units matching the filter. The default filter is
 `.*`.  Passing `-auto-approve` is required if you wish for the apply to proceed
 with automatic approval.
 
-## Format Command
+## Disable Subcommand
 
-The `fmt` command is inspired by [Terraform Best Practices][tf-guide],
+The `disable` subcommand alters Terragrunt units setting
+`unit = { enable = false }`.
+
+## Enable Subcommand
+
+The `disable` subcommand alters Terragrunt units setting
+`unit = { enable = true }`.
+
+## Format Subcommand
+
+The `fmt` subcommand is inspired by [Terraform Best Practices][tf-guide],
 [OpenTofu Style Conventions][tu-guide], [Terragrunt Best Practices][tg-guide],
 as well as input from online communities related to Tofu and Terraform, and
-opinions of those who contribute to this tool. Our format command goes beyond
+opinions of those who contribute to this tool. Our format subcommand goes beyond
 the simple formatting provided by other tools.
 
-This command formats Terraform module directories such that the code is
+This subcommand formats Terraform module directories such that the code is
 structured as follows.
 
 1. `main.tf` exists
@@ -138,6 +159,38 @@ structured as follows.
    arguments from multi line arguments. Meta arguments are placed ahead of
    normal arguments. Meta blocks are placed after normal blocks. Items are
    arranged is alphabetic within their respective grouping.
+
+## Init Subcommand
+
+The `init` subcommand executes `terraform init` or `terragrunt init` on all
+directories associated with an enviornment.
+
+## Install Subcommand
+
+```zsh
+git clone https://github.com/OpenTaho/taho.git
+cd taho
+sudo ./script install
+```
+
+The tool can also be invoked with `-v` or `--version` to report it's version.
+
+```zsh
+taho --version
+```
+
+## Lint Subcommand
+
+The `lint` subcommand performs lint checks from the root of the repository.
+
+## Shell Subcommand
+
+The `shell` subcommand starts a Docker container for the repository.
+
+## Version Subcommand
+
+The version subcommand shows the version of the Taho CLI. This subcommand also has
+`-v` as an alias.
 
 ## Problems
 
@@ -155,25 +208,6 @@ When you run this tool it is possible that your terraform files will be altered
 in ways that introduce errors and as such please make sure you are under version
 control prior to running the tool. After you run the tool make sure to test and
 review the project.
-
-## Install Command
-
-```zsh
-git clone https://github.com/OpenTaho/taho.git
-cd taho
-sudo ./script install
-```
-
-The tool can also be invoked with `-v` or `--version` to report it's version.
-
-```zsh
-taho --version
-```
-
-## Version Command
-
-The version command shows the version of the Taho CLI. This command also has
-`-v` as an alias.
 
 [tu-guide]: https://opentofu.org/docs/language/syntax/style
 [tf-guide]: https://developer.hashicorp.com/terraform/language/style
