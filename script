@@ -20,7 +20,14 @@ c2='\033[0;31m' # Red
 # We need Terragrunt to be non interactive.
 export TG_NON_INTERACTIVE=true
 
-dkr() {  
+#######################################
+# Run the Console command
+# Arguments:
+#   TBD
+# Returns
+#   0 if successfully, non-zero on error.
+#######################################
+shell() {
   local taho_id
   taho_id="$(uuidgen)"
 
@@ -47,9 +54,6 @@ dkr() {
     eval "$db"
   )
 
-  # Create a .git/sre directory and use it to define the startup script. The
-  # startup script allows us to preserve the working directory.
-  mkdir -p .tmp
   (
     echo $'#!/bin/bash\n'
     echo "cd '.$(
@@ -78,7 +82,7 @@ dkr() {
 
   # Create a docker command
   local d
-  d='docker run --rm -it'
+  d='time docker run --rm -it'
   d+=' -e TAHO_DOCKER=true'
   d+=" -h '$(basename "$PWD")'"
   d+=" -v '$HOME/.ssh:/root/.ssh'"
@@ -114,6 +118,7 @@ dkr() {
 
   # Evaluate the docker command
   eval "$d taho './.tmp/start-$taho_id'"
+  rm "./.tmp/start-$taho_id"
 }
 
 # Define a function for exist or evaluate
@@ -157,60 +162,78 @@ process_unit() {
       AWS_REGION="$(echo "$unit" | sed 's/\/.*//')"
       export AWS_REGION
 
-      # The parent may or may not be based on $AWS_ALIAS.
+      # The parent starts at the TAHO_ROOT
       local parent
-      if [ -n "$TAHO_ALIAS_ROOT" ]; then
-        parent="infrastructure/$AWS_ALIAS"
-      else
-        parent="infrastructure"
+      parent="${TAHO_ROOT-.}"
+
+      # The parent may or may not be based on $AWS_ALIAS.
+      if [ -z "$TAHO_NO_ALIAS_ROOT" ]; then
+        parent+="/$AWS_ALIAS"
       fi
 
       if ! cd "$parent/$unit"; then
-        echo -e "${c2}Could not change directory to '$unit'${c0}" >&2
+        echo -e "\n * ${c2}Could not change directory to '$unit'${c0}\n" >&2
         exit 1
-      fi
-
-      # If a clean was reqeusted remove cache directories
-      if [[ "$1" == 'clean' ]]; then
-        rm -rf .terraform .terragrunt-cache
       fi
 
       mkdir -p .terragrunt-cache
 
       # Process cmd (level 1)
       cmd1="$cmd"
+      local s_k
       case "$cmd1" in
         apply)
-          echo -e "\n* PWD: $(pwd)"
-          tg_run 'apply' "$unit" "$@"
+          tfg_run 'apply' "$unit" "$@"
           ;;
         check)
-          if \
-            terragrunt plan -detailed-exitcode -lock=false \
-            > .terragrunt-cache/output 2>&1
-          then
-            drift='false'
+          if [ -e terragrunt.hcl ]; then
+
+            # Automatically init if needed
+            terragrunt init > /dev/null 2>&1
+
+            # Resource count bytes divided by 1024
+            s_k="$(( $(terragrunt show -json 2> /dev/null | wc -c) / 1024 ))"
+
+            if \
+              terragrunt plan -detailed-exitcode -lock=false \
+              > .terragrunt-cache/output 2>&1
+            then
+              drift='false'
+            else
+              drift='true'
+            fi
           else
-            drift='true'
+            mkdir -p .terraform
+
+            # Automatically init if needed
+            terraform init > /dev/null 2>&1
+
+            # Resource count bytes divided by 1024
+            s_k="$(( $(terraform show -json 2> /dev/null | wc -c) / 1024 ))"
+
+            if \
+              terraform plan -detailed-exitcode -lock=false \
+              > .terraform/output 2>&1
+            then
+              drift='false'
+            else
+              drift='true'
+            fi
+          fi
+
+          if [[ "$s_k" == '0' ]]; then
+            s_k=''
           fi
           ;;
         destroy)
-          echo -e "\n* PWD: $(pwd)"
-          tg_unit_enabled "$unit" false
-          cmd="$1"; shift
-          if [[ "$cmd" == '-auto-approve' ]]; then
-            terragrunt destroy -auto-approve
-            rm -rf .terragrunt-cache
-          else
-            terragrunt destroy
-          fi
+          tfg_destroy "$@"
           ;;
         disable)
           tg_unit_enabled "$unit" false
           cmd="$1"; shift
           if [[ "$cmd" == 'apply' ]]; then
             cmd1=''
-            tg_run 'apply' "$unit" "$@"
+            tfg_run 'apply' "$unit" "$@"
           fi
           ;;
         enable)
@@ -218,19 +241,18 @@ process_unit() {
           cmd="$1"; shift
           if [[ "$cmd" == 'apply' ]]; then
             cmd1=''
-            tg_run 'apply' "$unit" "$@"
+            tfg_run 'apply' "$unit" "$@"
           fi
           ;;
         init)
-          echo -e "\n* PWD: $(pwd)"
-          tg_run 'init' "$unit" "$@"
+          tfg_run 'init' "$unit" "$@"
           ;;
       esac
 
       # Process cmd (level 2)
       case "$cmd1" in
         check|disable|enable|ls)
-          tg_line "$n" "$count" "$drift" "$unit"
+          tfg_line "$n" "$count" "$drift" "$unit" "$s_k" "$cmd1" "$@"
           ;;
       esac
     )
@@ -238,67 +260,88 @@ process_unit() {
 }
 
 #######################################
-# Terragrunt Apply
+# Run the init command
+# Arguments:
+#   TBD
+# Returns
+#   0 if successfully, non-zero on error.
+#######################################
+tf_init() {
+  # If running within docker, we change directory to the workspace.
+  if [ -n "$TAHO_DOCKER" ]; then
+    cd /workspace || exit 1
+  fi
+
+  find . -name main.tf |
+  sed 's/\/main.tf//' |
+  while read -r module; do
+    (
+      cd "$module" || exit 1
+      echo -e "\n * ${c1}tf init: ${c2}$module${c0}\n" >&2
+      terraform init "$@"
+      terraform validate
+      tflint
+    )
+  done
+}
+
+#######################################
+# Terraform or Terragrunt Destroy
 # Arguments:
 #   $@ - Subcommands (i.e. -upgrade, or -auto-approve)
 # Returns
 #   0 if successfully, non-zero on error.
 #######################################
-tg_run() {
+tfg_destroy() {
+  echo -e "\n * tfg ${c1}destroy:${c2} $unit${c0}\n" >&2
+  if [ -e terragrunt.hcl ]; then
+    tg_unit_enabled "$unit" false
+    terragrunt destroy "$@"
+  else
+    terraform destroy "$@"
+  fi
+}
+
+#######################################
+# Terraform or Terragrunt run
+# Arguments:
+#   $@ - Subcommands (i.e. -upgrade, or -auto-approve)
+# Returns
+#   0 if successfully, non-zero on error.
+#######################################
+tfg_run() {
   local cmd
   cmd="$1"; shift
-
   local unit="$1"; shift
 
-  if [[ "$1" == '-upgrade' ]]; then
-    shift
-    rm -rf .terragrunt-cache
-    time terragrunt init -upgrade
+  echo -e "\n * tfg ${c1}$cmd:${c2} $unit${c0}\n" >&2
+
+  if [ -e terragrunt.hcl ]; then
+    terragrunt "$cmd" "$@"
   else
-    time terragrunt init
-  fi
-
-  if [[ "$cmd" == 'apply' ]]; then
-
-    if [[ "$1" != '-auto-approve' ]]; then
-      terragrunt apply
-    else
-      shift
-      time terragrunt apply -auto-approve
-
-      # Handle the special case of applying vpc-endpoints where on the initial
-      # apply we need to apply again to get the output.
-      #
-      # This logic requires a path that contains "/vpce/".
-      if [[ "$unit" =~ .*\/vpce\/.* ]]; then
-        local dns_entry
-        dns_entry="$(terragrunt output -json | jq '.dns_entry.value')"
-        if [[ "$dns_entry" == '[]' ]]; then
-          echo "Running 2nd apply for VPC-Endpoint with empty dns_entry"
-          time terragrunt apply -auto-approve
-        else
-          echo 'Not running 2nd apply for VPC-Endpoint with' $'\n' "$dns_entry"
-        fi
-
-      fi
-
-    fi
-
+    terraform "$cmd" "$@"
   fi
 }
 
 #######################################
 # Show the unit enable state
 # Arguments:
-#   *
+#   $1 - number
+#   $2 - count
+#   $3 - drift
+#   $4 - unit
+#   $5 - resource count
+#   $6 - command
 # Returns
 #   0 if successfully, non-zero on error.
 #######################################
-tg_line() {
+tfg_line() {
   local n="$1"; shift
   local count="$1"; shift
   local drift="$1"; shift
   local unit="$1"; shift
+  local s_k="$1"; shift
+  local cmd="$1"; shift
 
   local count_color="${c0}"
   local drift_color="${c0}"
@@ -306,13 +349,17 @@ tg_line() {
   local module_color="${c0}"
   local ref_color="${c0}"
   local unit_color="${c0}"
+  local dependencies_color="${c0}"
+  local s_k_color="${c0}"
 
   local enabled
-  enabled="$(
-    grep -E 'unit *= ' terragrunt.hcl |
-    sed 's/.*= //' |
-    sed 's/ .*//'
-  )"
+  if [ -e terragrunt.hcl ]; then
+    enabled="$(
+      grep -E 'unit *= ' terragrunt.hcl |
+      sed 's/.*= //' |
+      sed 's/ .*//'
+    )"
+  fi
 
   if [[ "$enabled" == 'true' ]]; then
     enabled_color="${c1}"
@@ -322,17 +369,48 @@ tg_line() {
     enabled=''
   fi
 
+  # Validate the unit
+  if [[ "$cmd" != 'ls' ]]; then
+    if [ -e terragrunt.hcl ]; then
+
+      if ! terragrunt hcl validate --inputs --strict > /dev/null 2>&1; then
+        note+=" terragrunt-is-not-strict"
+      fi
+
+    else
+
+      if ! terraform validate > /dev/null 2>&1; then
+        note+=" terraform-is-not-valid"
+      fi
+
+      if ! tflint > /dev/null 2>&1; then
+        note+=" terraform-lint"
+      fi
+
+    fi
+  fi
+
   if [[ "$drift" == 'true' ]]; then
 
-    # Show the state (empty or really empty) means this is a new state.
+    # Determine state
     local show
-    show="$(terragrunt show -json 2> /dev/null)"
+    if [ -e terragrunt.hcl ]; then
+      if ! show="$(terragrunt show -json 2>&1)"; then
+        show='terragrunt-show-error'
+      fi
+    else
+      if ! show="$(terraform show -json 2>&1)"; then
+        show='terragrunt-show-error'
+      fi
+    fi
+
+    # A version only block is actually really empty
     if [[ "$show" == '{"format_version":"1.0"}' ]]; then
       show=''
     fi
 
-    if [[ "$show" == '' ]]
-    then
+    # (empty or really empty) means this is a new state.
+    if [ -z "$show" ]; then
       drift='new'
     else
       drift='yes'
@@ -344,112 +422,129 @@ tg_line() {
     drift=''
   fi
 
+  # Track source only for teragrunt
   local source
-  source="$(
-    grep -F 'source =' terragrunt.hcl |
-    sed 's/.*://' |
-    sed 's/"//'
-  )"
+  if [ -e terragrunt.hcl ]; then
+    source="$(
+      grep -F 'source =' terragrunt.hcl |
+      sed 's/.*://' |
+      sed 's/"//'
+    )"
 
-  local module
-  module="$(
-    echo "$source" |
-    sed 's/^pearson-digitalandtechnology\/identity-idam-gsc-modules\/\///'
-  )"
+    local module
+    module="$(
+      echo "$source" |
+      sed 's/^pearson-digitalandtechnology\/identity-idam-gsc-modules\/\///'
+    )"
 
-  # Trim source
-  source="$(
-    echo "$source" |
-    sed 's/.*\/\///' |
-    sed 's/\?ref=.*//'
-  )"
+    # Trim source
+    source="$(
+      echo "$source" |
+      sed 's/.*\/\///' |
+      sed 's/\?ref=.*//'
+    )"
 
-  local ref
-  ref="$(echo "$module" |
-  sed 's/.*\?ref=//')"
+    local ref
+    ref="$(echo "$module" |
+    sed 's/.*\?ref=//')"
 
-  local behind best_version latest_version note
+    local behind best_version latest_version note
 
-  # If we have a version tag are we using the latest version?
-  if [[ "$(
-    find .terragrunt-cache -name .git -type d |
-    tail -n 1 |
-    wc -l
-  )" == '1' ]]; then
-    if [[ "$ref" =~ ^v[0-9].* ]]; then
-      local tg_dir
-      tg_dir="$(
-        find .terragrunt-cache -name .git -type d |
-        tail -n 1
-      )"
+    # If we have a version tag are we using the latest version?
+    if [[ "$(
+      find .terragrunt-cache -name .git -type d |
+      tail -n 1 |
+      wc -l
+    )" == '1' ]]; then
+      if [[ "$ref" =~ ^v[0-9].* ]]; then
+        local tg_dir
+        tg_dir="$(
+          find .terragrunt-cache -name .git -type d |
+          tail -n 1
+        )"
 
-      behind="$(
-        cd "$tg_dir" || exit 1
-        cd "../$source" || exit 1
-        git log --oneline "$ref"..origin/main -- .| wc -l
-      )"
-
-      latest_version="$(
-        cd "$tg_dir" || exit 1
-        cd "../$source" || exit 1
-        git describe origin/main
-      )"
-
-      if [[ "$behind" != '0' ]]; then
-        ref_color="${c2}"
-        if [[ "$behind" != "$latest_version" ]]; then
-          note+=" behind=$behind"
-        fi
-      fi
-
-      for t in $(
-        cd "$tg_dir" || exit 1
-        cd "../$source" || exit 1
-        git tag | grep -E '^v' | sort -V -r
-      )
-      do
-        if [[ "$(
+        behind="$(
           cd "$tg_dir" || exit 1
           cd "../$source" || exit 1
-          git log --oneline "$t"..origin/main -- . | wc -l
-        )" != '0' ]]; then
-          break
-        fi
-        best_version="$t"
-      done
+          git log --oneline "$ref"..origin/main -- .| wc -l
+        )"
 
-      if [[ "$ref" != "$best_version" ]]; then
-        note+=" best=$best_version"
+        latest_version="$(
+          cd "$tg_dir" || exit 1
+          cd "../$source" || exit 1
+          git describe origin/main
+        )"
+
+        if [[ "$behind" != '0' ]]; then
+          ref_color="${c2}"
+          if [[ "$behind" != "$latest_version" ]]; then
+            note+=" behind=$behind"
+          fi
+        fi
+
+        for t in $(
+          cd "$tg_dir" || exit 1
+          cd "../$source" || exit 1
+          git tag | grep -E '^v' | sort -V -r
+        )
+        do
+          if [[ "$(
+            cd "$tg_dir" || exit 1
+            cd "../$source" || exit 1
+            git log --oneline "$t"..origin/main -- . | wc -l
+          )" != '0' ]]; then
+            break
+          fi
+          best_version="$t"
+        done
+
+        if [[ "$ref" != "$best_version" ]]; then
+          note+=" best=$best_version"
+        fi
       fi
     fi
+
+    if [[ "$ref" == "$best_version" ]]; then
+      ref_color="${c1}"
+    fi
+
+    module="$(echo "$module" |
+    sed 's/\?ref=.*//')"
+
+    dependencies="$(
+      grep -E '^dependency' terragrunt.hcl |
+      sed -r 's/dependency "//' |
+      sed -r 's/".*//' |
+      tr '\n' ' ' |
+      sed 's/ /, /g' |
+      sed -r 's/, $//'
+    )"
   fi
 
-  if [[ "$ref" == "$best_version" ]]; then
-    ref_color="${c1}"
-  fi
-
-  module="$(echo "$module" |
-  sed 's/\?ref=.*//')"
-
-  if [ -n "$TABLE_COLS" ]; then
+  if [ -z "$TAHO_NO_DETAIL" ]; then
     local spec=''
     spec="|${count_color}%5s${c0}|"
-    spec+="${enabled_color}%-3s${c0}|"
     spec+="${drift_color}%-3s${c0}|"
+    spec+="${enabled_color}%-3s${c0}|"
     spec+="${unit_color}%-36s${c0}|"
     spec+="${module_color}%-15s${c0}|"
     spec+="${ref_color}%11s${c0}|"
+    spec+="${dependencies_color}%-30s${c0}|"
+    spec+="${s_k_color}%5s${c0}|"
     spec+="$note\n"
 
-    printf "$spec" "$n/$count" "$enabled" "$drift" "$unit" "$module" "$ref"
+    printf "$spec" "$n/$count" "$drift" "$enabled" "$unit" "$module" "$ref" \
+      "$dependencies" \
+      "$s_k"
   else
     local spec=''
     spec="|${count_color}%5s${c0}|"
     spec+="${drift_color}%-3s${c0}|"
-    spec+="${unit_color}%-68s${c0}|"
+    spec+="${unit_color}%-99s${c0}|"
+    spec+="${s_k_color}%5s${c0}|"
     spec+="$note\n"
 
-    printf "$spec" "$n/$count" "$drift" "$unit"
+    printf "$spec" "$n/$count" "$drift" "$unit" "$s_k"
   fi
 }
 
@@ -469,7 +564,7 @@ tg_unit_enabled() {
   sed_cfg="s/ *unit * = \{ enabled = .* \}/unit = { enabled = $enabled }/g"
 
   sed -i -r "$sed_cfg" terragrunt.hcl;
-  taho > /dev/null
+  taho fmt > /dev/null
 }
 
 #######################################
@@ -490,10 +585,12 @@ main() {
   fi
   export TAHO_HOME
 
+  # Make sure that .tmp exists.
+  mkdir -p "$(git rev-parse --show-toplevel)/.tmp"
 
   # Parse the command
   local cmd
-  cmd="${1:-check}"; shift
+  cmd="${1:-shell}"; shift
   if [[ "$cmd" == 'install' ]]; then
     rm -rf /usr/local/bin/taho
     ln -s "$PWD/script" /usr/local/bin/taho
@@ -501,9 +598,6 @@ main() {
     echo 'Installed taho'
     exit
   fi
-
-  # Make sure .tmp exists
-  mkdir -p .tmp
 
   # Process command (top level)
   local e environment filter n
@@ -517,20 +611,24 @@ main() {
       ;;
     clean)
       cd "$(git rev-parse --show-toplevel)" || exit 1
-      find . -name ".terraform" -type d -exec rm -rf "{}" \; &> /dev/null
-      find . -name ".terragrunt-cache" -type d -exec rm -rf "{}" \; &> /dev/null
+      find . -name .terraform -type d -exec rm -rf {} \; &> /dev/null
+      find . -name .terragrunt-cache -type d -exec rm -rf {} \; &> /dev/null
+      if [[ "$1" == '-unlock' ]]; then
+        shift
+        find . -name .terraform.lock.hcl -type f -delete &> /dev/null
+      fi
       exit
       ;;
     destroy|disable)
       e='echo_reverse'
       ;;
-    dkr)
-      dkr "$@"
-      exit
-      ;;
     fmt)
       taho-go "$@"
       exit
+      ;;
+    tf-init)
+      e='echo'
+      tf_init "$@"
       ;;
     lint)
       find . -name \*.md -exec mdl {} \;
@@ -538,51 +636,48 @@ main() {
         find . -name "*.$name" -exec yamlfmt {} \;
         find . -name "*.$name" -exec yamllint {} \;
       done
+      tf_init "$@"
+      ;;
+    shell)
+      shell "$@"
+      exit
       ;;
     *)
-      echo -e "${c2}'$cmd' - Unknown subcommand${c0}" >&2
+      shell "$cmd"
       exit 1
       ;;
   esac
 
   # Get the enviornment code (i.e. poc, pro, dev, stg, pre, or prd)
-  environment="$1"; shift  
+  environment="$1"; shift
+  if [ -z "$environment" ]; then
+    exit
+  fi
+
   export TAHO_ENVIRONMENT="$environment"
-  echo -e "\n* $cmd $environment"
+  echo -e "\n${c1} * $cmd:${c2} $environment${c0}\n" >&2
   taho_init="$(git rev-parse --show-toplevel)/.taho.sh"
   if [ -e "$taho_init" ]; then
     source "$taho_init"
   fi
 
-  # If running within docker, we change directory to the workspace.
+  # If running within docker, we change to the workspace directory.
   if [ -n "$TAHO_DOCKER" ]; then
     cd /workspace || exit 1
   fi
 
   if [[ "$1" == '-filter' ]]; then
     shift
-    if [[ "$1" == '-E' ]]; then
-      shift
-      filter="$1"
-      shift
-    else
-      # Without the -E we process the filter so it becomes similar to splat
-      # style filter ("/" becomes "\/" and "*" becomes ".*").
-      filter=".*$(
-        echo "$1" |
-        sed -r 's/\//\\\//g' |
-        sed -r 's/\*/.*/g'
-      )"
-      shift
-    fi
+    filter="$1"
+    shift
   else
     filter='.*'
   fi
 
-  if [ -n "$TABLE_COLS" ]; then
-    export TABLE_LINE='|-----|---|---|------------------------------------|---------------|-----------|'
+  if [ -z "$TAHO_NO_DETAIL" ]; then
+    export TABLE_LINE='|-----|---|---|------------------------------------|---------------|-----------|------------------------------|-----|'
   else
-    export TABLE_LINE='|-----|---|--------------------------------------------------------------------|'
+    export TABLE_LINE='|-----|---|---------------------------------------------------------------------------------------------------|-----|'
   fi
 
   if [ -z "$TAHO_DOCKER" ]; then
@@ -595,17 +690,21 @@ main() {
   e='echo'
   case "$cmd" in
     check|disable|enable|ls)
-      printf '|------------------------------------------------------------------------------|\n'
-      if [ -n "$TAHO_ALIAS_ROOT" ]; then
-        printf '|%-78s|\n' "$workspace/infrastructure/$AWS_ALIAS"
+      printf '|-------------------------------------------------------------------------------------------------------------------|\n'
+      local base="$workspace"
+      if [ -n "$TAHO_ROOT" ]; then
+        base+="/$TAHO_ROOT"
+      fi
+      if [ -z "$TAHO_NO_ALIAS_ROOT" ]; then
+        printf '|%-115s|\n' "$base/$AWS_ALIAS"
       else
-        printf '|%-78s|\n' "$workspace/infrastructure"
+        printf '|%-115s|\n' "$base"
       fi
       printf '%s\n' "$TABLE_LINE"
-      if [ -n "$TABLE_COLS" ]; then
-        printf '|%5s|%-3s|%-3s|%-36s|%-15s|%11s|\n' N. EN DFT UNIT MODULE REFERENCE
+      if [ -z "$TAHO_NO_DETAIL" ]; then
+        printf '|%5s|%-3s|%-3s|%-36s|%-15s|%11s|%-30s|%5s|\n' N. DFT EN UNIT MODULE REFERENCE DEPENDENCIES 'S (k)'
       else
-        printf '|%5s|%-3s|%-68s|\n' N. DFT UNIT
+        printf '|%5s|%-3s|%-99s|%5s|\n' N. DFT UNIT 'S (k)'
       fi
       printf '%s\n' "$TABLE_LINE"
       ;;
@@ -613,15 +712,19 @@ main() {
 
   # The infrastructure may or may not be under $AWS_ALIAS
   local env_filter
-  if [ -n "$TAHO_ALIAS_ROOT" ]; then
+  if [ -z "$TAHO_NO_ALIAS_ROOT" ]; then
     env_filter="/$environment/"
   else
-    env_filter='`'"$environment/"
+    env_filter="${TAHO_ENV_FILTER_PREFIX}$environment/"
   fi
 
   # Reads the list of units from the table in our README.
-  TAHO_UNITS="$(    
-    grep -E '^\|`(eu-west-2|us-east-1)' README.md |
+  if [ -z "$TAHO_REGX" ]; then
+    TAHO_REGX='(eu-west-2|us-east-1)'
+  fi
+  local regx="^\|\`$TAHO_REGX/"
+  TAHO_UNITS="$(
+    grep -E "$regx" README.md |
     sed 's/^|`//' |
     sed 's/`.*//'
   )"

@@ -60,7 +60,7 @@ test() {
     if [[ "$1" == 'setup' ]]; then
       echo "Test $2: Setup Complete"
     else
-      taho 2>&1 | sed "s/^/Test $2: /"
+      taho fmt 2>&1 | sed "s/^/Test $2: /"
       echo ''
 
       result1="$(get_sha1sum)"

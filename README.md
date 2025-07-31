@@ -15,33 +15,113 @@ OpenTofu, Terragrunt, and AWS. Our CLI provides a higher level wrapper around
 Terragrunt, a very powerful formatting command for HCL code, and a managed
 Docker based environment with Terraform, OpenTofu, AWS, and related tools.
 
+Currently this tool is in early development. The tool is at the point where it
+is somewhat useful for Terraform and Terragrunt projects. Features related to
+OpenTofu do not yet work.
+
+## Configuration
+
+When using this tool with a Terragrunt you will need to add `.taho.sh` as a file
+in the root of your infrastructure repostory. The `.taho.sh` script will execute
+after the Taho command has set the `TAHO_ENVIRONMENT` environment variable based
+on user input and before reading your `README.md` file or accessing AWS.
+
+```bash
+#!/bin/bash
+#
+# Example Taho repostory, adjust this as needed.
+case "$TAHO_ENVIRONMENT" in
+  dev|stg)
+    export AWS_ACCOUNT='100000000000'
+    export AWS_ALIAS='the-nonprd'
+    ;;
+  prd)
+    export AWS_ACCOUNT='100000000001'
+    export AWS_ALIAS='the-prod'
+    ;;
+esac
+```
+
+Within the root level `README.md` file for your repository add tables that list
+the Terragrunt units that you would like the Taho CLI to consider. This can be a
+subset of the full environment list; the tables should take be formatted based
+on the following. The Taho CLI will parse the first column. Only the first
+column is considered. The `Notes` column in the example is just an example of a
+column that is ignored by the tool.
+
+```markdown
+|`./infrastructure/the-nonprd`|Notes                         |
+|-----------------------------|------------------------------|
+|`eu-west-2/dev/unit-1`       |                              |
+|`eu-west-2/dev/unit-2`       |Unit 2 has yada and dada bits.|
+|`us-east-1/dev/unit-3`       |                              |
+```
+
+##
+
 Our CLI provides the following commands:
 
-|Command  |Description                                |
-|---------|-------------------------------------------|
-|[Apply]  |Applies Terragrunt units                   |
-|[Check]  |Checks Terragrunt units                    |
-|[Destroy]|Destroys Terragrunt units                  |
-|[Disable]|Disables Terragrunt units                  |
-|[Docker] |Starts a Docker managed container          |
-|[Enable] |Enables Terragrunt units                   |
-|[Format] |Disables Terragrunt units                  |
-|[Install]|Installs our go binary and scripting layers|
-|[Lint]   |Lint for various tools                     |
-|[List]   |Lists Terragrunt units                     |
-|[Version]|Shows the version of our tool              |
+|Command  |Description                                  |
+|---------|---------------------------------------------|
+|[Apply]  |Applies infrastructure units                 |
+|[Check]  |Checks infrastructure units                  |
+|[Clean]  |Removes Terraform and Terragrunt cache files |
+|[Destroy]|Destroys infrastructure units                |
+|[Disable]|Disables Terragrunt units                    |
+|[Enable] |Enables Terragrunt units                     |
+|[Format] |Formats code                                 |
+|[Init]   |Initializes infrastructure units             |
+|[Install]|Installs our go binary and scripting layers  |
+|[Lint]   |Lint at the repository level                 |
+|[List]   |Lists infrastructure units                   |
+|[Shell]  |Starts a Docker managed container with bash  |
+|[Version]|Shows the version of our tool                |
 
+[Apply]: #apply-command
+[Check]: #check-command
+[Clean]: #clean-command
+[Destroy]: #destroy-command
 [Install]: #install-command
 [Version]: #version-command
 [Format]: #format-command
 
+## Apply Command
+
+The `apply` command performs a `terragrunt apply` for all units selected from
+the enviornment list. Passing `-fitler` with a regular expression allows you to
+limit the scope to only units matching the filter. The default filter is `.*`.
+Passing `-auto-approve` is required if you wish for the apply to proceed with
+automatic approval.
+
+## Check Command
+
+The `check` command executes `terragrunt plan -lock=false` for all units
+selected from the enviornment list. Passing `-fitler` with a regular expression
+allows you to limit the scope to only units matching the filter. The exit code
+for the Terragrunt command and a `yes` value is placed in the `DFT` column for
+any unit that has a non-zero result _(i.e. has drifted from the planned state)_.
+
+## Clean Command
+
+The `clean` command removes `.terraform` and `.terragrunt-cache` directories
+recursivly from the repository root. Adding the `-unlock` option also removes
+`.terraform.lock.hcl` files.
+
+## Destroy Command
+
+The `destroy` command performs a `terragrunt destroy` for all units selected
+from the enviornment list. Passing `-fitler` with a regular expression allows
+you to limit the scope to only units matching the filter. The default filter is
+`.*`.  Passing `-auto-approve` is required if you wish for the apply to proceed
+with automatic approval.
+
 ## Format Command
 
-Our `fmt` command is inspired by [Terraform Best Practices][tf-guide], [OpenTofu
-Style Conventions][tu-guide], [Terragrunt Best Practices][tg-guide], as well as
-input from online communities related to Tofu and Terraform, and opinions of
-those who contribute to this tool. Our format command goes beyond the simple
-formatting provided by other tools.
+The `fmt` command is inspired by [Terraform Best Practices][tf-guide],
+[OpenTofu Style Conventions][tu-guide], [Terragrunt Best Practices][tg-guide],
+as well as input from online communities related to Tofu and Terraform, and
+opinions of those who contribute to this tool. Our format command goes beyond
+the simple formatting provided by other tools.
 
 This command formats Terraform module directories such that the code is
 structured as follows.
