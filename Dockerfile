@@ -49,10 +49,8 @@ RUN cd /root \
 
 RUN mkdir -p /root/bin \
   && mkdir -p /workspace \
-  && ln -s /workspace/bin/sre-lint.sh /usr/bin/sre-lint \
   && ln -s /workspace/bin/tf-civl.sh /usr/bin/tf-civl \
   && ln -s /workspace/bin/tf-modules-upgrade.sh /usr/bin/tf-modules-upgrade \
-  && ln -s /workspace/bin/tge.sh /usr/bin/tge \
   && ln -s /workspace/bin/tgf-rm-cache-dirs.sh /usr/bin/tgf-rm-cache-dirs
 
 WORKDIR /workspace
