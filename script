@@ -377,7 +377,7 @@ tfg_line() {
     ref="$(echo "$module" |
     sed 's/.*\?ref=//')"
 
-    local behind best_version latest_version note
+    local behind newest_version latest_version note
 
     # If we have a version tag are we using the latest version?
     if [[ "$(
@@ -424,16 +424,16 @@ tfg_line() {
           )" != '0' ]]; then
             break
           fi
-          best_version="$t"
+          newest_version="$t"
         done
 
-        if [[ "$ref" != "$best_version" ]]; then
-          note+=" best=$best_version"
+        if [[ "$ref" != "$newest_version" ]]; then
+          note+=" newest=$newest_version"
         fi
       fi
     fi
 
-    if [[ "$ref" == "$best_version" ]]; then
+    if [[ "$ref" == "$newest_version" ]]; then
       ref_color="${c1}"
     fi
 
