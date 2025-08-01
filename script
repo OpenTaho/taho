@@ -828,16 +828,18 @@ start() {
   done
 
   if [[ "$(uname)" == 'Darwin' ]]; then
-    echo "alias tgap='git add -p'"
-    echo "alias tgca='git commit --amend'"
-    echo "alias tgph='git push -u origin HEAD'"
-    echo "alias tgpo='git push origin'"
-    echo "alias tgru='git remote update'"
-    echo "alias tgst='git status'"
-    echo "alias tgwi='git commit -m wip'"
-    echo "alias tgrm='git rebase -i -- origin/main'"
+    echo "alias taho-gap='git add -p'"
+    echo "alias taho-gca='git commit --amend'"
+    echo "alias taho-gpf='git push -f'"
+    echo "alias taho-gph='git push -u origin HEAD'"
+    echo "alias taho-gpo='git push origin'"
+    echo "alias taho-gpp='git push origin \"\$(git branch --show-current)\"; git push -u origin HEAD'"
+    echo "alias taho-grm='git rebase -i -- origin/main'"
+    echo "alias taho-gru='git remote update'"
+    echo "alias taho-gst='git status'"
+    echo "alias taho-gwi='git commit -m wip'"
 
-    echo "tgcm() {"
+    echo "taho-gcm() {"
     echo "  local prefix"
     echo "  prefix=\$(git branch --show-current | tr '[:lower:]' '[:upper:]')"
     echo "  if [[ \"\$prefix\" == 'MAIN' ]]; then"

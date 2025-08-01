@@ -1,7 +1,6 @@
 #!/bin/bash
 #
 
-
 alias tf='terraform'
 alias tfa='terraform apply'
 alias tfc='rm -rf backend.tf .terraform .terraform.lock.hcl .terragrunt-cache provider.tf'
