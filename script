@@ -460,7 +460,7 @@ tfg_line() {
     spec+="${drift_color}%-3s${c0}|"
     spec+="${enabled_color}%-3s${c0}|"
     spec+="${unit_color}%-36s${c0}|"
-    spec+="${module_color}%-15s${c0}|"
+    spec+="${module_color}%-18s${c0}|"
     spec+="${ref_color}%11s${c0}|"
     spec+="${dependencies_color}%-30s${c0}|"
     spec+="${s_k_color}%5s${c0}|"
@@ -473,7 +473,7 @@ tfg_line() {
     local spec=''
     spec="|${count_color}%5s${c0}|"
     spec+="${drift_color}%-3s${c0}|"
-    spec+="${unit_color}%-99s${c0}|"
+    spec+="${unit_color}%-102s${c0}|"
     spec+="${s_k_color}%5s${c0}|"
     spec+="$note\n"
 
@@ -614,9 +614,9 @@ main() {
   fi
 
   if [ -z "$TAHO_NO_DETAIL" ]; then
-    export TABLE_LINE='|-----|---|---|------------------------------------|---------------|-----------|------------------------------|-----|'
+    export TABLE_LINE='|-----|---|---|------------------------------------|------------------|-----------|------------------------------|-----|'
   else
-    export TABLE_LINE='|-----|---|---------------------------------------------------------------------------------------------------|-----|'
+    export TABLE_LINE='|-----|---|------------------------------------------------------------------------------------------------------|-----|'
   fi
 
   if [ -z "$TAHO_DOCKER" ]; then
@@ -629,21 +629,21 @@ main() {
   e='echo'
   case "$cmd" in
     check|disable|enable|ls)
-      printf '|-------------------------------------------------------------------------------------------------------------------|\n'
+      printf '|----------------------------------------------------------------------------------------------------------------------|\n'
       local base="$workspace"
       if [ -n "$TAHO_ROOT" ]; then
         base+="/$TAHO_ROOT"
       fi
       if [ -z "$TAHO_NO_ALIAS_ROOT" ]; then
-        printf '|%-115s|\n' "$base/$AWS_ALIAS"
+        printf '|%-118s|\n' "$base/$AWS_ALIAS"
       else
-        printf '|%-115s|\n' "$base"
+        printf '|%-118s|\n' "$base"
       fi
       printf '%s\n' "$TABLE_LINE"
       if [ -z "$TAHO_NO_DETAIL" ]; then
-        printf '|%5s|%-3s|%-3s|%-36s|%-15s|%11s|%-30s|%5s|\n' N. DFT EN UNIT MODULE REFERENCE DEPENDENCIES 'S (k)'
+        printf '|%5s|%-3s|%-3s|%-36s|%-18s|%11s|%-30s|%5s|\n' N. DFT EN UNIT MODULE REFERENCE DEPENDENCIES 'S (k)'
       else
-        printf '|%5s|%-3s|%-99s|%5s|\n' N. DFT UNIT 'S (k)'
+        printf '|%5s|%-3s|%-102s|%5s|\n' N. DFT UNIT 'S (k)'
       fi
       printf '%s\n' "$TABLE_LINE"
       ;;
