@@ -837,7 +837,7 @@ start() {
     echo "tgcm() {"
     echo "  local prefix"
     echo "  prefix=\$(git branch --show-current | tr '[:lower:]' '[:upper:]')"
-    echo "  if [[ \"prefix\" == 'main' ]]; then"
+    echo "  if [[ \"\$prefix\" == 'MAIN' ]]; then"
     echo "    prefix=''"
     echo "  fi"
    echo "   [ -z \"\$prefix\" ] || prefix+=' '"
