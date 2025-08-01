@@ -828,24 +828,15 @@ start() {
   done
 
   if [[ "$(uname)" == 'Darwin' ]]; then
-    echo "alias taho-gap='git add -p'"
-    echo "alias taho-gca='git commit --amend'"
-    echo "alias taho-gpf='git push -f'"
-    echo "alias taho-gph='git push -u origin HEAD'"
-    echo "alias taho-gpo='git push origin'"
-    echo "alias taho-gpp='git push origin \":\$(git branch --show-current)\"; git push -u origin HEAD'"
-    echo "alias taho-grm='git rebase -i -- origin/main'"
-    echo "alias taho-gru='git remote update'"
-    echo "alias taho-gst='git status'"
-    echo "alias taho-gwi='git commit -m wip'"
+    echo "alias taho-git-delete-and-push-back='git push origin \":\$(git branch --show-current)\"; git push -u origin HEAD'"
 
-    echo "taho-gcm() {"
+    echo "taho-git-commit() {"
     echo "  local prefix"
     echo "  prefix=\$(git branch --show-current | tr '[:lower:]' '[:upper:]')"
     echo "  if [[ \"\$prefix\" == 'MAIN' ]]; then"
     echo "    prefix=''"
     echo "  fi"
-   echo "   [ -z \"\$prefix\" ] || prefix+=' '"
+    echo "   [ -z \"\$prefix\" ] || prefix+=' '"
     echo "  git commit -m\"\$prefix\$1\" && git commit --amend"
     echo "}"
   fi
