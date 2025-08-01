@@ -117,8 +117,10 @@ process_unit() {
         check)
           if [ -e terragrunt.hcl ]; then
 
-            # Automatically init if needed
-            terragrunt init > /dev/null 2>&1
+            # Init if needed
+            if [ ! -d .terragrunt_cache ]; then
+              terragrunt init > /dev/null 2>&1
+            fi
 
             # Resource count bytes divided by 1024
             s_k="$(( $(terragrunt show -json 2> /dev/null | wc -c) / 1024 ))"
@@ -132,10 +134,10 @@ process_unit() {
               drift='true'
             fi
           else
-            mkdir -p .terraform
-
-            # Automatically init if needed
-            terraform init > /dev/null 2>&1
+            # Init if needed
+            if [ ! -d .terraform ]; then
+              terraform init > /dev/null 2>&1
+            fi
 
             # Resource count bytes divided by 1024
             s_k="$(( $(terraform show -json 2> /dev/null | wc -c) / 1024 ))"
@@ -358,6 +360,7 @@ tfg_line() {
   # Track source only for teragrunt
   local source
   if [ -e terragrunt.hcl ]; then
+
     source="$(
       grep -F 'source =' terragrunt.hcl |
       sed 's/.*://' |
