@@ -23,29 +23,6 @@ c2='\033[0;31m' # Red
 export TG_NON_INTERACTIVE=true
 
 #######################################
-# Run the aliases subcommand
-# Arguments:
-#   TBD
-# Returns
-#   0 if successfully, non-zero on error.
-#######################################
-aliases() {
-  echo "alias taho-aws-x='(rm -rf ~/.aws/.aws_saml_* > /dev/null) > /dev/null 2>&1'"
-
-  for profile in $(grep -F '[profile ' < "$HOME/.aws/config" |
-    sed 's/.* //' |
-    sed 's/\]//'
-  ); do
-    echo "alias \"taho-aws-$profile\"=\". <(taho aws-runas $profile)\""
-  done
-
-  if [ -e .taho.sh ]; then
-    source .taho.sh
-  fi
-  echo "$TAHO_ALIASES"
-}
-
-#######################################
 # Run the aws-runas subcommand
 # Arguments:
 #   TBD
@@ -76,112 +53,6 @@ aws_runas() {
   echo 'export AWS_SIMPLE_ROLENAME="$(echo "$aws_id" | jq -r .Arn 2>&1 | sed "s/.*assumed-role\///" | sed "s/@.*//")"'
   echo 'export AWS_ACCOUNT="$(echo "$aws_id" | jq -r .Account)"'
   echo 'export AWS_ALIAS="$(aws iam list-account-aliases | jq -r '"'"'.AccountAliases[0]'"'"')"'
-}
-
-#######################################
-# Run the Console subcommand
-# Arguments:
-#   TBD
-# Returns
-#   0 if successfully, non-zero on error.
-#######################################
-shell() {
-  local taho_id
-  taho_id="$(uuidgen)"
-
-  # Use linux/amd64
-  export DOCKER_DEFAULT_PLATFORM='linux/amd64'
-
-  # Capture the current working directory
-  local working_dir="$PWD"
-
-  # Change directory to toplevel
-  cd "$(git rev-parse --show-toplevel)" || exit 1
-
-  # Build
-  if [[ "$1" == '-V' ]]; then
-    export TAHO_VERBOSE=true
-    shift
-  fi
-  (
-    cd "$TAHO_HOME" || exit 1
-    db="docker build . -t taho"
-    if [ -z "$TAHO_VERBOSE" ]; then
-      db+=' > /dev/null 2>&1'
-    fi
-    eval "$db"
-  )
-
-  (
-    echo $'#!/bin/bash\n'
-    echo "cd '.$(
-      echo "$working_dir" |
-      sed 's/'"$(
-        pwd |
-        sed 's/\//\\\//g'
-      )"'//'
-    )'"
-    echo 'export PATH="$HOME/.tfenv/bin:$PATH"'
-    echo 'export PATH="$HOME/.tgenv/bin:$PATH"'
-    echo 'export PATH="$HOME/go/bin:$PATH"'
-    if [ -z "$1" ]; then
-      echo 'bash'
-    else
-      echo "bash -c 'source /root/.bashrc; $*'"
-    fi
-  ) > ".tmp/start-$taho_id"
-  chmod +x ".tmp/start-$taho_id"
-
-  # Ensure that required file system resources exist.
-  existing_or "$HOME/.cache/pre-commit"         'mkdir -p'
-  existing_or "$HOME/.terraform.d/plugin-cache" 'mkdir -p'
-  existing_or "$HOME/.terraformrc"              'touch'
-  existing_or "$PWD/.tmp/history"               'touch'
-
-  # Create a docker subcommand
-  local d
-  d='time docker run --rm -it'
-  d+=' -e TAHO_DOCKER=true'
-  d+=" -h '$(basename "$PWD")'"
-  d+=" -v '$HOME/.ssh:/root/.ssh'"
-  d+=" -v '$PWD:/workspace'"
-  d+=" -v '$PWD/.tmp/history:/root/.history:rw'"
-
-  # Add volume mounts to the docker subcommand
-  for x in \
-    '.cache/pre-commit' \
-    '.ssh/known_hosts' \
-    '.gitconfig'
-  do
-    d+=" -v '$HOME/$x:/root/$x'"
-  done
-
-  # Add rw volume mounts to the docker subcommand
-  for x in \
-    '.terraform.d/plugin-cache' \
-    '.terraformrc' \
-    '.aws'
-  do
-    d+=" -v '$HOME/$x:/root/$x:rw'"
-  done
-
-  # Add environment variables to the docker subcommand
-  for v in $(
-    env |
-    grep -E '^(AWS_)' |
-    sed 's/=.*//' \
-  ); do
-    d+=" -e $v"
-  done
-
-  # Evaluate the docker subcommand
-  eval "$d taho './.tmp/start-$taho_id'"
-  rm "./.tmp/start-$taho_id"
-}
-
-# Define a function for exist or evaluate
-existing_or() {
-  [ -e "$1" ] || eval "$2 $1"
 }
 
 #######################################
@@ -667,9 +538,6 @@ main() {
     apply|check|enable|init|ls)
       e='echo'
       ;;
-    aliases)
-      aliases "$@"
-      ;;
     aws-runas)
       aws_runas "$@"
       ;;
@@ -705,6 +573,9 @@ main() {
     shell)
       shell "$@"
       exit
+      ;;
+    start)
+      start "$@"
       ;;
     *)
       shell "$cmd"
@@ -824,6 +695,157 @@ main() {
 
   # A final line for readability
   echo
+}
+
+#######################################
+# Run the Console subcommand
+# Arguments:
+#   TBD
+# Returns
+#   0 if successfully, non-zero on error.
+#######################################
+shell() {
+  local taho_id
+  taho_id="$(uuidgen)"
+
+  # Use linux/amd64
+  export DOCKER_DEFAULT_PLATFORM='linux/amd64'
+
+  # Capture the current working directory
+  local working_dir="$PWD"
+
+  # Change directory to toplevel
+  cd "$(git rev-parse --show-toplevel)" || exit 1
+
+  # Build
+  if [[ "$1" == '-V' ]]; then
+    export TAHO_VERBOSE=true
+    shift
+  fi
+  (
+    cd "$TAHO_HOME" || exit 1
+    db="docker build . -t taho"
+    if [ -z "$TAHO_VERBOSE" ]; then
+      db+=' > /dev/null 2>&1'
+    fi
+    eval "$db"
+  )
+
+  (
+    echo $'#!/bin/bash\n'
+    echo "cd '.$(
+      echo "$working_dir" |
+      sed 's/'"$(
+        pwd |
+        sed 's/\//\\\//g'
+      )"'//'
+    )'"
+    echo 'export PATH="$HOME/.tfenv/bin:$PATH"'
+    echo 'export PATH="$HOME/.tgenv/bin:$PATH"'
+    echo 'export PATH="$HOME/go/bin:$PATH"'
+    if [ -z "$1" ]; then
+      echo 'bash'
+    else
+      echo "bash -c 'source /root/.bashrc; $*'"
+    fi
+  ) > ".tmp/start-$taho_id"
+  chmod +x ".tmp/start-$taho_id"
+
+  # Ensure that required file system resources exist.
+  existing_or "$HOME/.cache/pre-commit"         'mkdir -p'
+  existing_or "$HOME/.terraform.d/plugin-cache" 'mkdir -p'
+  existing_or "$HOME/.terraformrc"              'touch'
+  existing_or "$PWD/.tmp/history"               'touch'
+
+  # Create a docker subcommand
+  local d
+  d='time docker run --rm -it'
+  d+=' -e TAHO_DOCKER=true'
+  d+=" -h '$(basename "$PWD")'"
+  d+=" -v '$HOME/.ssh:/root/.ssh'"
+  d+=" -v '$PWD:/workspace'"
+  d+=" -v '$PWD/.tmp/history:/root/.history:rw'"
+
+  # Add volume mounts to the docker subcommand
+  for x in \
+    '.cache/pre-commit' \
+    '.ssh/known_hosts' \
+    '.gitconfig'
+  do
+    d+=" -v '$HOME/$x:/root/$x'"
+  done
+
+  # Add rw volume mounts to the docker subcommand
+  for x in \
+    '.terraform.d/plugin-cache' \
+    '.terraformrc' \
+    '.aws'
+  do
+    d+=" -v '$HOME/$x:/root/$x:rw'"
+  done
+
+  # Add environment variables to the docker subcommand
+  for v in $(
+    env |
+    grep -E '^(AWS_)' |
+    sed 's/=.*//' \
+  ); do
+    d+=" -e $v"
+  done
+
+  # Evaluate the docker subcommand
+  eval "$d taho './.tmp/start-$taho_id'"
+  rm "./.tmp/start-$taho_id"
+}
+
+# Define a function for exist or evaluate
+existing_or() {
+  [ -e "$1" ] || eval "$2 $1"
+}
+
+#######################################
+# Run the start subcommand
+# Arguments:
+#   TBD
+# Returns
+#   0 if successfully, non-zero on error.
+#######################################
+start() {
+  echo "alias taho-aws-x='(rm -rf ~/.aws/.aws_saml_* > /dev/null) > /dev/null 2>&1'"
+
+  for profile in $(grep -F '[profile ' < "$HOME/.aws/config" |
+    sed 's/.* //' |
+    sed 's/\]//'
+  ); do
+    echo "alias \"taho-aws-$profile\"=\". <(taho aws-runas $profile)\""
+  done
+
+  if [[ "$(uname)" == 'Darwin' ]]; then
+    echo "alias tgap='git add -p'"
+    echo "alias tgca='git commit --amend'"
+    echo "alias tgph='git push -u origin HEAD'"
+    echo "alias tgpo='git push origin'"
+    echo "alias tgru='git remote update'"
+    echo "alias tgst='git status'"
+    echo "alias tgwi='git commit -m wip'"
+    echo "alias tgrm='git rebase -i -- origin/main'"
+
+    echo "tgcm() {"
+    echo "  local prefix"
+    echo "  prefix=\$(git branch --show-current | tr '[:lower:]' '[:upper:]')"
+    echo "  if [[ \"prefix\" == 'main' ]]; then"
+    echo "    prefix=''"
+    echo "  fi"
+   echo "   [ -z \"\$prefix\" ] || prefix+=' '"
+    echo "  git commit -m\"\$prefix\$1\" && git commit --amend"
+    echo "}"
+  fi
+
+  if [ -e .taho.sh ]; then
+    source .taho.sh
+  fi
+
+  echo "$TAHO_ALIASES"
 }
 
 main "$@"

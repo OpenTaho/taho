@@ -69,7 +69,6 @@ Our CLI provides the following subcommands:
 
 |Command     |Description                                  |
 |------------|---------------------------------------------|
-|[Aliases]   |Writes a script that defines useful Aliases  |
 |[Apply]     |Applies infrastructure units                 |
 |[AWS-RunAs] |AWS RunAs script output                      |
 |[Check]     |Checks infrastructure units                  |
@@ -83,9 +82,10 @@ Our CLI provides the following subcommands:
 |[Lint]      |Lint at the repository level                 |
 |[List]      |Lists infrastructure units                   |
 |[Shell]     |Starts a Docker managed container with bash  |
+|[Start]     |Starts by adding and/or refining environment |
 |[Version]   |Shows the version of our tool                |
 
-[Aliases]: #aliases-subcommand
+[Start]: #start-subcommand
 [Apply]: #apply-subcommand
 [AWS-RunAs]: #aws-runas-subcommand
 [Check]: #check-subcommand
@@ -99,17 +99,6 @@ Our CLI provides the following subcommands:
 [Lint]: #lint-subcommand
 [Shell]: #shell-subcommand
 [Version]: #version-subcommand
-
-## Aliases Subcommand
-
-The `aliases` subcommand outputs a script that defines `taho-` prefixed aliases.
-These aliases in turn support the [AWS RunAs](#aws-runas-subcommand).
-
-On MacOS, invoke the `aliases` subcommand as follows:
-
-```zsh
-source <(taho aliases)
-```
 
 ## Apply Subcommand
 
@@ -212,6 +201,23 @@ The `lint` subcommand performs lint checks from the root of the repository.
 ## Shell Subcommand
 
 The `shell` subcommand starts a Docker container for the repository.
+
+## Start Subcommand
+
+The `start` subcommand outputs a script that defines aliases and shell functions.
+
+Some of the aliases in turn support the [AWS RunAs](#aws-runas-subcommand).
+
+On MacOS, invoke the `start` subcommand as follows:
+
+```zsh
+source <(taho start)
+```
+
+We recommend adding `alias taho-start='source <(taho start)'` to your `.zshrc`
+so it is convenient to issue the command each time you start working in a
+repository. The `start` subcommand can potentially incorporate content from your
+repositories `.taho.sh` file.
 
 ## Version Subcommand
 
