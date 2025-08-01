@@ -174,7 +174,11 @@ process_unit() {
           fi
           ;;
         init)
-          tfg_run 'init' "$unit" "$@"
+          if [ -z "$unit" ]; then
+            tf_init "$@"
+          else
+            tfg_run 'init' "$unit" "$@"
+          fi
           ;;
       esac
 
