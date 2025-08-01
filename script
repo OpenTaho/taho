@@ -833,7 +833,7 @@ start() {
     echo "alias taho-gpf='git push -f'"
     echo "alias taho-gph='git push -u origin HEAD'"
     echo "alias taho-gpo='git push origin'"
-    echo "alias taho-gpp='git push origin \"\$(git branch --show-current)\"; git push -u origin HEAD'"
+    echo "alias taho-gpp='git push origin \":\$(git branch --show-current)\"; git push -u origin HEAD'"
     echo "alias taho-grm='git rebase -i -- origin/main'"
     echo "alias taho-gru='git remote update'"
     echo "alias taho-gst='git status'"
