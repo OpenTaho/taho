@@ -42,6 +42,7 @@ aws_runas() {
     fi
   fi
 
+  rm -rf ~/.aws/.aws_saml_* > /dev/null 2>&1
   echo 'unset AWS_ACCESS_KEY_ID'
   echo 'unset AWS_DEFAULT_REGION'
   echo 'unset AWS_REGION'
@@ -673,10 +674,11 @@ tfg_line() {
       echo "$module" |
       sed 's/\?ref=.*//' |
       sed 's/ *//' |
-      sed 's/[^ a-z]*$//g'
+      sed 's/^root\///' |
+      sed 's/[^ a-z0-9]*$//g'
     )"
 
-    local behind newest_version latest_version note
+    local behind newest_version note
 
     # If we have a version tag are we using the latest version?
     if [[ "$(
@@ -692,48 +694,46 @@ tfg_line() {
         )"
 
         behind="$(
-          cd "$tg_dir" || exit 1
-          cd "../$module" || exit 1
-          git log --oneline "$ref"..origin/main -- . 2> /dev/null | wc -l
+          if cd "$tg_dir" > /dev/null 2>&1; then
+            if cd "../$module" > /dev/null 2>&1; then
+              git log --oneline "$ref"..origin/main -- . 2> /dev/null | wc -l
+            fi
+          fi
         )"
 
-        latest_version="$(
-          cd "$tg_dir" || exit 1
-          cd "../$module" || exit 1
-          git describe origin/main
-        )"
-
-        if [[ "$behind" != '0' ]]; then
-          ref_color="${c2}"
-          if [[ "$behind" != "$latest_version" ]]; then
+        if [ -n "$behind" ]; then
+          if [[ "$behind" != '0' ]]; then
             note+=" behind=$behind"
           fi
         fi
 
         for t in $(
-          cd "$tg_dir" || exit 1
-          cd "../$module" || exit 1
-          git tag | grep -E '^v' | sort -V -r
+          if cd "$tg_dir" > /dev/null 2>&1; then
+            if cd "../$module" > /dev/null 2>&1; then
+              git tag | grep -E '^v' | sort -V -r
+            fi
+          fi
         )
         do
           if [[ "$(
-            cd "$tg_dir" || exit 1
-            cd "../$module" || exit 1
-            git log --oneline "$t"..origin/main -- . | wc -l
+            if cd "$tg_dir" > /dev/null 2>&1; then
+              if cd "../$module" > /dev/null 2>&1; then
+                git log --oneline "$t"..origin/main -- . | wc -l
+              fi
+            fi
           )" != '0' ]]; then
             break
           fi
           newest_version="$t"
         done
 
-        if [[ "$ref" != "$newest_version" ]]; then
-          note+=" newest=$newest_version"
+        if [ -n "$newest_version" ]; then
+          if [[ "$ref" != "$newest_version" ]]; then
+            note+=" newest=$newest_version"
+            ref_color="${c1}"
+          fi
         fi
       fi
-    fi
-
-    if [[ "$ref" == "$newest_version" ]]; then
-      ref_color="${c1}"
     fi
 
     dependencies="$(
@@ -775,7 +775,7 @@ tfg_line() {
     spec+="${unit_color}%-102s${c0}|"
     spec+="${s_k_color}%5s${c0}|"
     spec+="${time_color}%5s${c0}|"
-    spec+="$note\n"
+    spec+="${c2}$note{$c0}\n"
 
     printf "$spec" "$n/$count" "$drift" "$unit" "$s_k" "$time"
   fi
@@ -834,7 +834,7 @@ main() {
   # Process subcommand (top level)
   local e environment filter n
   case "$cmd" in
-    -v)
+    -v|--version)
       taho-go -v
       exit
       ;;
@@ -1135,8 +1135,6 @@ existing_or() {
 #   0 if successfully, non-zero on error.
 #######################################
 start() {
-  echo "alias taho-aws-x='(rm -rf ~/.aws/.aws_saml_* > /dev/null) > /dev/null 2>&1'"
-
   for profile in $(grep -F '[profile ' < "$HOME/.aws/config" |
     sed 's/.* //' |
     sed 's/\]//'
