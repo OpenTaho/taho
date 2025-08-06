@@ -44,7 +44,7 @@ COPY bin/export.sh /root
 RUN cd /root \
   && echo 'source /root/export.sh' >> .zshrc \
   && PATH="/root/.tfenv/bin:/root/.tgenv/bin:$PATH" \
-  && tgenv install 0.83.1 \
+  && tgenv install 0.84.1 \
   && tfenv use latest \
   && tgenv use latest
 
