@@ -844,6 +844,12 @@ main() {
   taho_init="$(git rev-parse --show-toplevel)/.taho.sh"
   if [ -e "$taho_init" ]; then
     source "$taho_init"
+
+    # We may need to source again if the environment was redefined.
+    if [[ "$TAHO_ENVIRONMENT" != "$environment" ]]; then
+      source "$taho_init"
+      environment="$TAHO_ENVIRONMENT"
+    fi
   fi
 
   # If running within docker, we change to the workspace directory.

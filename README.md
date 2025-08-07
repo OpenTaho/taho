@@ -7,7 +7,10 @@ A tool to make Tofu and Terraform code pretty.
 - Documentation is very weak
 - GoLang implementation is a mess
 - Script implmentatation is also a mess
-- Scripting only works for `us-east-1` and `eu-west-2` AWS regions.
+- Scripting only works for `_global`, `us-east-1` and `eu-west-2` AWS regions
+- We only support one `_global` environment (we need a scope feature so we can
+  support one per account)
+- We have other [problems](#problems) that need to be fixed
 
 ## Overview
 
