@@ -678,63 +678,7 @@ tfg_line() {
       sed 's/[^ a-z0-9]*$//g'
     )"
 
-    local behind newest_version note
-
-    # If we have a version tag are we using the latest version?
-    if [[ "$(
-      find .terragrunt-cache -name .git -type d |
-      tail -n 1 |
-      wc -l
-    )" == '1' ]]; then
-      if [[ "$ref" =~ ^v[0-9].* ]]; then
-        local tg_dir
-        tg_dir="$(
-          find .terragrunt-cache -name .git -type d |
-          tail -n 1
-        )"
-
-        behind="$(
-          if cd "$tg_dir" > /dev/null 2>&1; then
-            if cd "../$module" > /dev/null 2>&1; then
-              git log --oneline "$ref"..origin/main -- . 2> /dev/null | wc -l
-            fi
-          fi
-        )"
-
-        if [ -n "$behind" ]; then
-          if [[ "$behind" != '0' ]]; then
-            note+=" behind=$behind"
-          fi
-        fi
-
-        for t in $(
-          if cd "$tg_dir" > /dev/null 2>&1; then
-            if cd "../$module" > /dev/null 2>&1; then
-              git tag | grep -E '^v' | sort -V -r
-            fi
-          fi
-        )
-        do
-          if [[ "$(
-            if cd "$tg_dir" > /dev/null 2>&1; then
-              if cd "../$module" > /dev/null 2>&1; then
-                git log --oneline "$t"..origin/main -- . | wc -l
-              fi
-            fi
-          )" != '0' ]]; then
-            break
-          fi
-          newest_version="$t"
-        done
-
-        if [ -n "$newest_version" ]; then
-          if [[ "$ref" != "$newest_version" ]]; then
-            note+=" newest=$newest_version"
-            ref_color="${c1}"
-          fi
-        fi
-      fi
-    fi
+    local note
 
     dependencies="$(
       grep -E '^dependency' terragrunt.hcl |
