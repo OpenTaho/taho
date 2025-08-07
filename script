@@ -1095,18 +1095,15 @@ start() {
   if [[ "$(uname)" == 'Darwin' ]]; then
     echo "alias taho-git-delete-and-push-back='git push origin \":\$(git branch --show-current)\"; git push -u origin HEAD'"
 
-    echo "taho-git-commit() {"
-    echo "  local prefix"
-    echo "  prefix=\$(git branch --show-current | tr '[:lower:]' '[:upper:]')"
-    echo "  if [[ \"\$prefix\" == 'MAIN' ]]; then"
-    echo "    prefix='fix'"
-    echo "  fi"
-    echo "  git commit -m\"\$prefix: \$1\" && git commit --amend"
-    echo "}"
-    echo "taho_precmd() {"
-    echo "  echo -e -n \"\$(taho get-context)\""
-    echo "}"
-    echo "add-zsh-hook precmd taho_precmd"
+    echo   "taho-git-commit() {"
+    echo   "  local issue"
+    echo   "  issue=\"\$(git branch --show-current)\""
+    printf "  git commit -m\"\$1\\n\\n\$2\" --trailer \"Issue: \$issue\" && git commit --amend"
+    echo   "}"
+    echo   "taho_precmd() {"
+    echo   "  echo -e -n \"\$(taho get-context)\""
+    echo   "}"
+    echo   "add-zsh-hook precmd taho_precmd"
   fi
 
   if [ -e .taho.sh ]; then
