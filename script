@@ -353,7 +353,7 @@ process_unit() {
       # Set AWS REGION based on unit directory
       dir_segment="$(echo "$unit" | sed 's/\/.*//')"
       case "$dir_segment" in
-        eu-west-2|us-east-1)
+        _global|eu-west-2|us-east-1)
           AWS_REGION="$dir_segment"
           export AWS_REGION
           ;;
@@ -907,7 +907,7 @@ main() {
 
   # Reads the list of units from the table in our README.
   if [ -z "$TAHO_REGX" ]; then
-    TAHO_REGX='(eu-west-2|us-east-1)'
+    TAHO_REGX='(_global|eu-west-2|us-east-1)'
   fi
   local regx="^\|\`$TAHO_REGX/"
   TAHO_UNITS="$(
