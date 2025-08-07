@@ -1098,7 +1098,7 @@ start() {
     echo   "taho-git-commit() {"
     echo   "  local issue"
     echo   "  issue=\"\$(git branch --show-current)\""
-    printf "  git commit -m\"fix: \$1\\n\\n\$2\" --trailer \"issue: \$issue\" && git commit --amend"
+    printf "  git commit -m\"fix: \$1\\n\\n\$2\" --trailer \"\${TAHO_GIT_COMMIT_TRAILER_KEY:-Issue}: \$issue\" && git commit --amend\n"
     echo   "}"
     echo   "taho_precmd() {"
     echo   "  echo -e -n \"\$(taho get-context)\""
