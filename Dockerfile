@@ -26,7 +26,7 @@ RUN URL=https://api.github.com/repos/aquasecurity/tfsec/releases/latest \
   && URL="$(curl -s "$URL" | grep -o -E -m 1 "https://.+?tfsec-linux-amd64")" \
   && curl -s -L "$URL" > tfsec && chmod +x tfsec && mv tfsec /usr/bin
 
-RUN URL=https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip \
+RUN URL=https://awscli.amazonaws.com/awscli-exe-linux-$(arch).zip \
   && curl -s "$URL" -o awscliv2.zip && unzip awscliv2.zip && ./aws/install \
   && rm -rf awscliv2.zip \
   && echo 'complete -C /usr/local/bin/aws_completer aws' >> /root/.zshrc
@@ -51,7 +51,7 @@ RUN curl -s https://raw.githubusercontent.com/terraform-linters/tflint/master/in
   | bash
 
 RUN cd /tmp || exit 1 \
-  && curl -s -o packer.zip https://releases.hashicorp.com/packer/1.14.3/packer_1.14.3_linux_386.zip \
+  && curl -s -o packer.zip https://releases.hashicorp.com/packer/1.14.3/packer_1.14.3_linux_arm64.zip \
   && unzip packer.zip \
   && mv packer /usr/local/bin
 

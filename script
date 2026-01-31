@@ -1567,9 +1567,6 @@ shell() {
     TAHO_VERBOSE=true
   fi
 
-  # Use linux/amd64
-  export DOCKER_DEFAULT_PLATFORM='linux/amd64'
-
   # Capture the current working directory
   local working_dir="$PWD"
 
