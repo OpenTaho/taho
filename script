@@ -376,6 +376,16 @@ get_context() {
 }
 
 #######################################
+# Install Kube Control
+#######################################
+install_kubectl() {
+  (
+    cd /root/bin || exit 1
+    curl -s -LO "https://dl.k8s.io/release/${1:-v1.34.0}/bin/linux/amd64/kubectl"
+    chmod +x kubectl
+  )
+}
+#######################################
 # Install Terraform
 #
 # This installs terraform using the binary for linux amd64.
@@ -1349,6 +1359,10 @@ main() {
       ;;
     get-context)
       get_context "$@"
+      exit
+      ;;
+    install-k|install-kubectl)
+      install_kubectl "$@"
       exit
       ;;
     install-tf|install-terraform)
