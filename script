@@ -379,9 +379,11 @@ get_context() {
 # Install Kube Control
 #######################################
 install_kubectl() {
+  local version="${1:-v1.35.0}"
   (
+    mkdir -p /root/bin
     cd /root/bin || exit 1
-    curl -s -LO "https://dl.k8s.io/release/${1:-v1.34.0}/bin/linux/amd64/kubectl"
+    curl -s -LO "https://dl.k8s.io/release/$version/bin/linux/amd64/kubectl"
     chmod +x kubectl
   )
 }

@@ -42,8 +42,10 @@ COPY .git /root/taho/.git
 RUN cd /root/taho \
   && git reset --hard \
   && ./script install \
+  && taho install-k \
   && taho install-terraform \
-  && taho install-terragrunt
+  && taho install-terragrunt \
+  && echo 'source <(/root/bin/kubectl completion zsh)' >> /root/.zshrc
 
 RUN curl -s https://raw.githubusercontent.com/terraform-linters/tflint/master/install_linux.sh \
   | bash
