@@ -74,6 +74,7 @@ Our CLI provides the following subcommands:
 |[Save-AWS-AUTH]     |`save-aws-auth`|Saves AWS Authentication in a `.tmp/.aws/$AWS_ALIAS` file                   |
 |[Shell]             |`shell`        |Starts a Docker managed shell enviornment                                   |
 |[Start]             |`start`        |Starts by adding and/or refining environment and adding aliases             |
+|[Tag-Version]       |`tag-v`        |Create a tag based on branch and commit                                     |
 |[TF-Lint-Fix]       |`tf-lint-fix`  |Runs `tflint --fix` for all modules                                         |
 |[TF-Lint]           |`tf-lint`      |Init, valiation, format checking, and lint                                  |
 |[TFG-Lock]          |`tfg-lock`     |Runs `terraform providers lock ...` or `terragrunt run -- provide...`       |
@@ -309,14 +310,32 @@ so it is convenient to issue the subcommand each time you start working in a
 repository. The `start` subcommand can potentially incorporate content from your
 repositories `.taho.sh` file.
 
-## TF Lint Subcommand
+## Tag Version
 
-The `tf-lint` subcommand initialize, validate, and runs `tflint` for all
-Terraform modules in the repository.
+The `tag-v` subcommand creates a tag based on the branch name, the text of the
+latest commit, and the history of tags.
+
+The following tokens can be included in either the branch name or in the text of
+the latest commit.  If no tokens are found the default behavior is to create a
+new tag with an incremented minor component.
+
+|Token       |Behavior                                               |
+|------------|-------------------------------------------------------|
+|`@major`    |Increment to the major component                       |
+|`@minor`    |Increment to the minor component                       |
+|`@patch`    |Increment to the patch component                       |
+|`@pre-major`|Increment to the major component and pre-release number|
+|`@pre-minor`|Increment to the minor component and pre-release number|
+|`@pre-patch`|Increment to the patch component and pre-release number|
 
 ## TF Lint Fix Subcommand
 
 The `tf-lint-fix` subcommand runs `tflint --fix` for all module directories.
+
+## TF Lint Subcommand
+
+The `tf-lint` subcommand initialize, validate, and runs `tflint` for all
+Terraform modules in the repository.
 
 ## TFG Lock Subcommand
 

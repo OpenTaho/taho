@@ -737,6 +737,124 @@ save_aws_auth() {
 }
 
 #######################################
+tag_v() {
+  (
+    # Use pipefail mode
+    set -o pipefail
+
+    # Get the latest tag or start at v0.0.0
+    local latest_tag
+    latest_tag=$(
+      git tag --merged |
+      grep -E '^v[0-9]+\.[0-9]+\.[0-9]+' |
+      grep -v -F '-' |
+      sort -V |
+      tail -n 1 ||
+      echo "v0.0.0"
+    )
+
+    local current_version="${latest_tag#v}"
+    local version_parts
+    IFS='.' read -ra version_parts <<< "$current_version"
+
+    local major="${version_parts[0]}"
+    local minor="${version_parts[1]}"
+    local patch="${version_parts[2]}"
+
+    # Remove pre-release info from the patch
+    patch="$(
+      echo "$patch" |
+      sed 's/-.*//'
+    )"
+
+    # Ensure we have values
+    major="${major:-0}"
+    minor="${minor:-0}"
+    patch="${patch:-0}"
+
+    # Get the merge commit message
+    local commit_msg_and_branch
+    commit_msg_and_branch="$(git branch --show-current)\n$(git log -1 --pretty=%B)"
+
+    # Convert "#" to "@" so they will be treated the same in the evaluation
+    # of the bump_type selection.
+    commit_msg_and_branch="$(
+      echo "$commit_msg_and_branch" |
+      tr '#' '@'
+    )"
+
+    # Determine bump type from merge commit message
+    # If the user has not indicatded a choice we assume this is a minor release.
+    local bump_type
+    if [[ $commit_msg_and_branch == *"@major"* ]]; then
+      bump_type="major"
+    elif [[ $commit_msg_and_branch == *"@patch"* ]]; then
+      bump_type="patch"
+    elif [[ $commit_msg_and_branch == *"@pre-major"* ]]; then
+      bump_type="pre-major"
+    elif [[ $commit_msg_and_branch == *"@pre-minor"* ]]; then
+      bump_type="pre-minor"
+    elif [[ $commit_msg_and_branch == *"@pre-patch"* ]]; then
+      bump_type="pre-patch"
+    else
+      bump_type="minor"
+    fi
+
+    local base_release
+    case $bump_type in
+      pre-major)
+        base_release="$(( major + 1 )).0.0"
+        ;;
+      pre-minor)
+        base_release="$major.$(( minor + 1 )).0"
+        ;;
+      pre-patch)
+        base_release="$major.$minor.$(( patch + 1 ))"
+        ;;
+    esac
+
+    if [ -n "$base_release" ]; then
+      echo "INFO base_release=$base_release"
+      local last_pre_release
+      last_pre_release="$(
+        git tag |
+        grep -F "v$base_release-" |
+        sed 's/.*-//' |
+        tail -n 1
+      )" || true
+
+      last_pre_release="${last_pre_release:-0}"
+      echo "INFO: last_pre_release=$last_pre_release"
+
+      local pre_release
+      pre_release="$(( last_pre_release + 1 ))"
+      echo "INFO: pre_release=$pre_release"
+    fi
+
+    # Bump version
+    local new_version
+    case $bump_type in
+      patch)
+        new_version="$major.$minor.$(( patch + 1 ))"
+        ;;
+      pre-major|pre-minor|pre-patch)
+        new_version="$base_release-$pre_release"
+        ;;
+      major)
+        new_version="$(( major + 1 )).0.0"
+        ;;
+      *)
+        new_version="$major.$(( minor + 1 )).0"
+        ;;
+    esac
+
+    # Create and push new tag
+    local new_tag="v$new_version"
+    git tag -a "$new_tag" -m "Bump version to $new_tag"
+  )
+}
+
+#######################################
 # Run the tf-lint subcommand
 # Arguments:
 #   $1 - the option for "-fail-fast"
@@ -1333,7 +1451,7 @@ main() {
         cd "$TAHO_HOME" || exit 1
         git describe
       )
-      exit
+      exit 0
       ;;
     apply|check|enable|init)
       e='echo'
@@ -1343,7 +1461,7 @@ main() {
       ;;
     clean)
       clean "$@"
-      exit
+      exit 0
       ;;
     copy-locks)
       e='echo'
@@ -1353,27 +1471,27 @@ main() {
       ;;
     fmt)
       taho-go "$@"
-      exit
+      exit 0
       ;;
     gc)
       gc "$@"
-      exit
+      exit 0
       ;;
     get-context)
       get_context "$@"
-      exit
+      exit 0
       ;;
     install-k|install-kubectl)
       install_kubectl "$@"
-      exit
+      exit 0
       ;;
     install-tf|install-terraform)
       install_terraform "$@"
-      exit
+      exit 0
       ;;
     install-tg|install-terragrunt)
       install_terragrunt "$@"
-      exit
+      exit 0
       ;;
     ls)
       e='echo'
@@ -1405,15 +1523,15 @@ main() {
     tf-lint)
       clean
       tf_lint "$@"
-      exit
+      exit 0
       ;;
     tf-lint-fix)
       tf_lint_fix "$@"
-      exit
+      exit 0
       ;;
     tfg-lock)
       tfg_pro_lock "$@"
-      exit
+      exit 0
       ;;
     lint)
       clean
@@ -1421,14 +1539,18 @@ main() {
       ;;
     save-aws-auth)
       save_aws_auth "$@"
-      exit
+      exit 0
       ;;
     shell)
       shell "$@"
-      exit
+      exit 0
       ;;
     start)
       start "$@"
+      exit 0
+      ;;
+    tag-v|tag-version)
+      tag_v
       exit 0
       ;;
     url)
