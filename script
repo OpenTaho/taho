@@ -214,7 +214,7 @@ echo_reverse() {
 #   0 if successfully, non-zero on error.
 #######################################
 gc() {
-  rm -rf "$HOME/taho/tmp"
+  rm -rf "$HOME/taho/.tmp"
   if git rev-parse --show-toplevel > /dev/null 2>&1; then
     rm -rf "$(git rev-parse --show-toplevel)/.tmp"
   fi
@@ -254,7 +254,7 @@ get_context() {
     aws_ctx="${c1}NO-AWS${c0}"
   else
     # Directory for tracking AWS Auth age
-    aws_auth_dir="${HOME}/taho/tmp/$HOSTNAME"
+    aws_auth_dir="${HOME}/taho/.tmp/$HOSTNAME"
     mkdir -p "$aws_auth_dir"
 
     # File for tracking AWS Auth age
