@@ -377,7 +377,7 @@ get_context() {
 #   0 if successfully, non-zero on error.
 #######################################
 install_terraform() {
-  local version="${1:-1.14.3}"; shift || true
+  local version="${1:-1.14.4}"; shift || true
   local install_to="${1:-/usr/local/bin}"; shift || true
 
   # Remove a leading "v" if it was supplied
