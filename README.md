@@ -63,8 +63,9 @@ Our CLI provides the following subcommands:
 |[Format]            |`fmt`          |Formats code                                                                |
 |[GC]                |`gc`           |Collect Garbage                                                             |
 |[Init]              |`init`         |Initializes infrastructure units                                            |
-|[Install-Terraform] |`install-tf`   |Installs Terraform and checks for a trusted hash                            |
-|[Install-Terragrunt]|`install-tg`   |Installs Terragrunt and checks for a trusted hash                           |
+|[Install-Kubectl]   |`install-k`    |Installs Kubectl                                                            |
+|[Install-Terraform] |`install-tf`   |Installs Terraform                                                          |
+|[Install-Terragrunt]|`install-tg`   |Installs Terragrunt                                                         |
 |[Install]           |`install`      |Installs Taho CLI                                                           |
 |[Lint]              |`lint`         |Lint at the repository level                                                |
 |[List]              |`ls`           |Lists infrastructure units                                                  |
@@ -217,13 +218,17 @@ The tool can also be invoked with `-v` or `--version` to report it's version.
 taho --version
 ```
 
+## Install Kubectl Subcommand
+
+The `install-k` subcommand installs a specified Kubectl binary.
+
 ## Install Terraform Subcommand
 
-The `install-terraform` subcommand installs a specified Terraform binary.
+The `install-tf` subcommand installs a specified Terraform binary.
 
 ## Install Terragrunt Subcommand
 
-The `install-terraform` subcommand installs a specified Terragrunt binary.
+The `install-tg` subcommand installs a specified Terragrunt binary.
 
 ## Install TFLint Subcommand
 
@@ -407,6 +412,7 @@ and the block are not handled correctly
 [Format]:             #format-subcommand
 [GC]:                 #gc-subcommand
 [Init]:               #init-subcommand
+[Install-Kubectl]:    #install-kubectl-subcommand
 [Install-Terraform]:  #install-terraform-subcommand
 [Install-Terragrunt]: #install-terragrunt-subcommand
 [Install]:            #install-subcommand
