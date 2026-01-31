@@ -86,8 +86,18 @@ check() {
     if [ -z "$backend_file" ]; then
       TAHO_BACKEND_MISSING='true'
     else
-      backend_key="$(cat "$backend_file" | grep -E ' *key *= "' | sed 's/ *key *= "//' | sed 's/"//')"
-      expected_backend_key="$(pwd | sed "s/^$(git rev-parse --show-toplevel | sed 's/\//\\\//g')\///")"
+      backend_key="$(
+        cat "$backend_file" |
+        grep -E ' *key *= "' |
+        sed 's/ *key *= "//' |
+        sed 's/"//'
+      )"
+
+      expected_backend_key="$TG_GH_INF/$(
+        pwd |
+        sed "s/^$(git rev-parse --show-toplevel |
+        sed 's/\//\\\//g')\///"
+      )"
 
       unset TAHO_BACKEND_KEY_MISMATCH
       if [[ "$backend_key" != "$expected_backend_key" ]]; then
