@@ -1500,26 +1500,6 @@ main() {
         exit 0
       fi
       ;;
-    pwd)
-      pwd |
-      sed "s/$(git rev-parse --show-toplevel |
-      sed 's/\//\\\//g')\///"
-      exit 0
-      ;;
-    pud)
-      echo "$(
-        cd "$(git rev-parse --show-toplevel)" || exit 1
-        cd ..
-        pwd
-      )/$(
-        git remote get-url origin |
-        sed 's/.*\///' |
-        sed 's/\.git$//'
-      )-units/$(
-        taho pwd
-      )"
-      exit 0
-      ;;
     tf-lint)
       clean
       tf_lint "$@"

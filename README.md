@@ -69,8 +69,6 @@ Our CLI provides the following subcommands:
 |[Install]           |`install`      |Installs Taho CLI                                                           |
 |[Lint]              |`lint`         |Lint at the repository level                                                |
 |[List]              |`ls`           |Lists infrastructure units                                                  |
-|[Print-Working-Dir] |`pwd`          |Prints the working directory relative to the repository root                |
-|[Print-Unit-Dir]    |`pud`          |Prints the directory for the unit relative in the `.tmp`                    |
 |[Save-AWS-AUTH]     |`save-aws-auth`|Saves AWS Authentication in a `.tmp/.aws/$AWS_ALIAS` file                   |
 |[Shell]             |`shell`        |Starts a Docker managed shell enviornment                                   |
 |[Start]             |`start`        |Starts by adding and/or refining environment and adding aliases             |
