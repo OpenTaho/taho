@@ -32,7 +32,7 @@ RUN URL=https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip \
 
 RUN git clone --depth 1 https://github.com/sheerun/vim-polyglot /root/.vim/pack/plugins/start/vim-polyglot
 
-RUN wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 \
+RUN wget -q https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 \
 -O /usr/local/bin/yq \
 && chmod +x /usr/local/bin/yq
 
