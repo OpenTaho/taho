@@ -1,5 +1,7 @@
 FROM ubuntu:latest
 
+RUN yes | unminimize
+
 # Install tools using apt-get
 RUN apt-get update \
   && apt-get install -y \
