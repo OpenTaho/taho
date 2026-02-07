@@ -10,6 +10,7 @@ RUN apt-get update \
   jq \
   markdownlint \
   python3-pip \
+  python3.12-venv \
   tig \
   unzip \
   vim \
