@@ -2,49 +2,40 @@
 
 A tool for Terraform, Tofu, and AWS.
 
-## Open Issues
-
-- Documentation is very weak
-- GoLang implementation is a mess
-- Script implmentatation is also a mess
-- Scripting only works for `_global`, `us-east-1` and `eu-west-2` AWS regions
-- We only support one `_global` environment (we need a scope feature so we can
-  support one per account)
-- We have other [problems](#problems) that need to be fixed
-
-## Overview
-
-The Taho CLI supports Site Reliability Engineers working with Terraform,
-OpenTofu, Terragrunt, and AWS.
-
-Our CLI provides a higher level wrapper around Terragrunt, a very powerful
-formatting subcommand for HCL code, and a managed Docker based environment with
-Terraform, OpenTofu, AWS, and related tools.
-
-Currently this tool is in early development. The tool is at the point where it
-is somewhat useful for Terraform and Terragrunt projects. Features related to
-OpenTofu do not yet work. Many features that should be part of the go code are
-implemented by a large and cahotic [shell script](./script).
-
-Still, even in this early stage the tool is useful. If others contribute to the
-project the tool will become more useful.
-
-The Taho tool provides subcommands to address the followning.
-
-- Automation and reporting for Terraform, and Terragrunt projects
-- AWS RunAs Integration with Generated Aliases
-- Formatting for Terraform and Terragrunt files
-- Integrated Linting
-- Shell enviornment for isolation
-
 ## About the Name
 
 Taho is a dessert made with tofu. Taho is also a city in Utah known for good ski
 resorts.
 
-In addtion, Taho is the name of this subcommand line tool. The founder of the
+In addtion, Taho is the name of this subcommand line tool. The author of the
 project simply picked the name because it goes well with OpenTofu and it is
 short.
+
+## Open Issues
+
+- Documentation is very weak
+- GoLang implementation is a mess
+- Script implmentatation is also a mess
+- The `fmt` command has [problems](#problems) that need to be fixed
+- Scripts may not be portable currently development is on `bash@5.2.37` and
+  `zsh@5.9`
+
+## Overview
+
+The Taho CLI supports Site Reliability Engineers working with AWS, Docker,
+Terraform, Terragrunt, Open Tofu, and Kubernetes, and related tools.
+
+Subcommands to address the followning.
+
+- Formatting for Terraform and Terragrunt files
+- Scripting for Terraform, and Terragrunt projects
+- Docker Based Shell enviornment
+
+Many features are currently implemented by a large [shell script](./script). If
+others contribute to the project the tool will become more useful.
+
+The tool is at the point where it is useful for the work it's author does on
+projects.
 
 ## Subcommands
 
