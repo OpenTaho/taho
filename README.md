@@ -52,7 +52,6 @@ Our CLI provides the following subcommands:
 
 |Subcommand Name     |Subcommand     |Description                                                                 |
 |--------------------|---------------|----------------------------------------------------------------------------|
-|[Apply]             |`apply`        |Applies infrastructure units                                                |
 |[AWS-RunAs]         |`aws-runas`    |AWS RunAs script output                                                     |
 |[Check]             |`check`        |Checks infrastructure units                                                 |
 |[Clean]             |`clean`        |Removes Terraform and Terragrunt cache files                                |
@@ -78,15 +77,6 @@ Our CLI provides the following subcommands:
 |[TFG-Lock]          |`tfg-lock`     |Runs `terraform providers lock ...` or `terragrunt run -- provide...`       |
 |[Version]           |`version`      |Shows the version of our tool                                               |
 |[URL]               |`url`          |Show the https URL for a github origin                                      |
-
-## Apply Subcommand
-
-The `apply` subcommand performs a `terragrunt apply` for all units selected from
-the a list of units defined in the project's `README`. Passing `-filter` with a
-regular expression allows you to limit the scope to only units matching the
-filter. The default filter is `.*`.  Passing `-reverse` results in reverse
-traversal for list.  Passing `-auto-approve` is required if you wish for the
-apply to proceed with automatic approval.
 
 ## AWS RunAs Subcommand
 
@@ -420,7 +410,6 @@ and the block are not handled correctly
 3. Using `//` or `/*` may result in a crash
 4. HCL errors will result in a crash
 
-[Apply]:              #apply-subcommand
 [AWS-RunAs]:          #aws-runas-subcommand
 [aws-runas-cli]:      https://github.com/mmmorris1975/aws-runas
 [Check]:              #check-subcommand
