@@ -10,6 +10,7 @@ RUN apt-get update \
   git \
   golang \
   jq \
+  man \
   markdownlint \
   python3-pip \
   python3.12-venv \
