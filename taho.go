@@ -1037,15 +1037,15 @@ func (t *Taho) SortAttributes(block *hclwrite.Block,
 	return block
 }
 
-func (t *Taho) ToLines(block *hclwrite.Block) []string {
-	lines, _, _ := t.ReadLines(t.WriteBlock(block), "")
-	return lines
-}
-
 func (t *Taho) TofuExists(filename string) bool {
 	re := t.proxy.MustCompile(`\.tf$`)
 	tofuName := re.ReplaceAllString(filename, "") + ".tofu"
 	return t.proxy.FileExists(tofuName)
+}
+
+func (t *Taho) ToLines(block *hclwrite.Block) []string {
+	lines, _, _ := t.ReadLines(t.WriteBlock(block), "")
+	return lines
 }
 
 func (t *Taho) WriteBlock(block *hclwrite.Block) string {
