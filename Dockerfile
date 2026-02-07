@@ -61,6 +61,10 @@ RUN cd /root \
   && echo 'source /root/export.sh' >> .zshrc \
   && PATH="/root/.tfenv/bin:/root/.tgenv/bin:$PATH"
 
+RUN cd /root/bin \
+  && curl -sLO https://raw.githubusercontent.com/ahmetb/kubectx/refs/heads/master/kubens \
+  && chmod +x kubens
+
 RUN mkdir -p /root/bin
 
 WORKDIR /workspace
