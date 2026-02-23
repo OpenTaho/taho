@@ -2,10 +2,12 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclwrite"
+	thcl "github.com/openTaho/taho-hcl"
 )
 
 const version = "main"
@@ -69,9 +71,27 @@ func (t *Taho) GetTypeAndLabels(newBlock *hclwrite.Block) string {
 
 func (t *Taho) HandleArgs() {
 	if t.proxy.HasArgs() {
-		if !(t.HandleInitArg() || t.HandleHelpArg() || t.HandleRecursiveArg() || t.HandleVersionArg()) {
-			t.proxy.Fatalf("Unable to handle argumet \"%s\"", t.proxy.args[1:][0])
+		if t.HandleTestArg() {
+			return
 		}
+
+		if t.HandleInitArg() {
+			return
+		}
+
+		if t.HandleHelpArg() {
+			return
+		}
+
+		if t.HandleRecursiveArg() {
+			return
+		}
+
+		if t.HandleVersionArg() {
+			return
+		}
+
+		t.proxy.Fatalf("Unable to handle argumet \"%s\"", t.proxy.args[1:][0])
 	}
 }
 
@@ -90,6 +110,17 @@ func (t *Taho) HandleHelpArg() bool {
 			"-r, --recursive\n" +
 			"-v, --version")
 	t.complete = true
+	return true
+}
+
+func (t *Taho) HandleTestArg() bool {
+	if !(t.proxy.HasArg("t", "test")) {
+		return false
+	}
+
+	fmt.Println("TEST")
+	fmt.Println(thcl.Hello("test"))
+
 	return true
 }
 

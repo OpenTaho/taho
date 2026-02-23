@@ -7,6 +7,8 @@ require (
 	github.com/zclconf/go-cty v1.16.1
 )
 
+require github.com/openTaho/taho-hcl v0.2.0
+
 require (
 	github.com/agext/levenshtein v1.2.1 // indirect
 	github.com/apparentlymart/go-textseg/v15 v15.0.0 // indirect
