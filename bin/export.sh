@@ -54,5 +54,3 @@ alias tgm='terragrunt import'
 alias tgo='terragrunt output'
 alias tgp='terragrunt plan -lock=false'
 alias tgv='terragrunt hcl validate --inputs --strict'
-
-alias yes='echo yes'
