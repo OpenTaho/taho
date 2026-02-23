@@ -539,12 +539,14 @@ process_unit() {
       exit 1
     fi
 
-    local source
-    source="$(
+    local raw_source
+    raw_source="$(
       grep -F 'source =' terragrunt.hcl |
       sed 's/.*= "//' |
       sed 's/"//'
     )"
+
+    local source="$raw_source"
 
     local module_dir module_source
 
@@ -571,6 +573,7 @@ process_unit() {
     local module
     module="$(
       echo "$source" |
+      sed 's/\?.*//' |
       sed 's/.*\///' |
       sed 's/\.git\?/?/'
     )"
@@ -590,7 +593,7 @@ process_unit() {
 
     local ref
     ref="$(
-      echo "$module" |
+      echo "$raw_source" |
       sed 's/.*\?ref=//' |
       sed 's/".*$//g'
     )"
@@ -614,6 +617,7 @@ process_unit() {
       (
         git clone "$module_source" "$unit_dir"
         cd "$unit_dir" || exit 1
+        git checkout -b "$git_branch" "origin/$ref" ||
         git checkout -b "$git_branch" "$ref"
       ) 2>&1 || exit 1
     )"; then
@@ -641,7 +645,7 @@ process_unit() {
     )"
 
     if [[ "$tf_version" != "$tf_version_actual" ]]; then
-      echo "TERRAFORM VERSION MISMATCH"
+      echo "TERRAFORM VERSION MISMATCH: '$module', '$ref', '$git_branch', '$tf_version', '$tf_version_actual'"
       exit 1
     fi
 
@@ -1305,10 +1309,21 @@ tfg_line() {
   local submodule
   for submodule in $(
     cd "$tmp" 2> /dev/null || exit
-    git clone --depth 1 "git@github.com:$TH_ORG/$module" > /dev/null 2>&1
+    git clone "git@github.com:$TH_ORG/$module" > /dev/null 2>&1
     cd "$module" 2> /dev/null || exit
     git fetch origin "$ref" > /dev/null 2>&1
-    git reset --hard "$ref" > /dev/null 2>&1
+    (
+      git reset --hard "$ref" ||
+      git reset --hard "origin/$ref"
+    ) > /dev/null 2>&1
+
+    if [ ! -f main.tf ]; then
+      echo 'ERROR: main.tf not found'
+      echo "INFO: module=$module"
+      echo "INFO: ref=$ref"
+      exit 1
+    fi
+
     cat main.tf |
     grep -E '\?ref=v[0-9]*\.' |
     sed 's/"$//' |
@@ -1332,8 +1347,6 @@ tfg_line() {
     '' |
     head -n 1
   done
-
-  rm -rf "$tmp"
 
   printf '%s\n' "$TABLE_LINE"
 }
