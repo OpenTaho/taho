@@ -230,11 +230,13 @@ func (t *Taho) LoadConfig() {
 
 func (t *Taho) LoadConfigFile(filename string, config TahoConfig) {
 	configFile, err := os.Open(filename)
-	if err == nil {
-		jsonParser := json.NewDecoder(configFile)
-		jsonParser.Decode(&config)
-		t.config = &config
+	if err != nil {
+		return
 	}
+	defer configFile.Close()
+	jsonParser := json.NewDecoder(configFile)
+	jsonParser.Decode(&config)
+	t.config = &config
 }
 
 func (t *Taho) Num() int {
