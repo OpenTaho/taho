@@ -1,11 +1,13 @@
 module github.com/OpenTaho/taho-go
 
-go 1.23.3
+go 1.26.0
 
 require (
 	github.com/hashicorp/hcl/v2 v2.23.0
 	github.com/zclconf/go-cty v1.16.1
 )
+
+require github.com/openTaho/taho-hcl v0.2.0
 
 require (
 	github.com/agext/levenshtein v1.2.1 // indirect

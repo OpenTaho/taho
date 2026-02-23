@@ -2,17 +2,16 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
+	"strings"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclwrite"
+	thcl "github.com/openTaho/taho-hcl"
 )
 
 const version = "main"
-
-type MainConfig struct {
-	WorkingDirectory string `json:"workingDirectory"`
-}
 
 // Structure for a Taho instance.
 type Taho struct {
@@ -40,6 +39,13 @@ type TahoConfig struct {
 	Init      bool     `json:"init"`
 	Provider  bool     `json:"provider"`
 	Terraform bool     `json:"terraform"`
+
+	// In some situations, it is useful to execute Taho in a given directory but
+	// actually run as if Taho is executing from within another directory.
+	//
+	// We achieve this behavior by setting the "workingDirectory" key for the JSON
+	// content in the .taho.json file.
+	WorkingDirectory string `json:"workingDirectory"`
 }
 
 func (t *Taho) AdjustBlockTypeForSorting(typeName string) string {
@@ -59,19 +65,38 @@ func (t *Taho) GetAttributeKeys(attributes map[string]*hclwrite.Attribute) []str
 }
 
 func (t *Taho) GetTypeAndLabels(newBlock *hclwrite.Block) string {
-	typeAndLabels := newBlock.Type()
+	var typeAndLabels strings.Builder
+	typeAndLabels.WriteString(newBlock.Type())
 	labels := newBlock.Labels()
 	for n := range labels {
-		typeAndLabels += t.proxy.Sprintf(".%s", labels[n])
+		typeAndLabels.WriteString(t.proxy.Sprintf(".%s", labels[n]))
 	}
-	return typeAndLabels
+	return typeAndLabels.String()
 }
 
 func (t *Taho) HandleArgs() {
 	if t.proxy.HasArgs() {
-		if !(t.HandleInitArg() || t.HandleHelpArg() || t.HandleRecursiveArg() || t.HandleVersionArg()) {
-			t.proxy.Fatalf("Unable to handle argumet \"%s\"", t.proxy.args[1:][0])
+		if t.HandleTestArg() {
+			return
 		}
+
+		if t.HandleInitArg() {
+			return
+		}
+
+		if t.HandleHelpArg() {
+			return
+		}
+
+		if t.HandleRecursiveArg() {
+			return
+		}
+
+		if t.HandleVersionArg() {
+			return
+		}
+
+		t.proxy.Fatalf("Unable to handle argumet \"%s\"", t.proxy.args[1:][0])
 	}
 }
 
@@ -178,6 +203,17 @@ func (t *Taho) HandleRecursiveArg() bool {
 	return true
 }
 
+func (t *Taho) HandleTestArg() bool {
+	if !(t.proxy.HasArg("t", "test")) {
+		return false
+	}
+
+	fmt.Println("TEST")
+	fmt.Println(thcl.Hello("test"))
+
+	return true
+}
+
 func (t *Taho) HandleVersionArg() bool {
 	if !(t.proxy.HasArg("v", "version")) {
 		return false
@@ -226,15 +262,21 @@ func (t *Taho) LoadConfig() {
 	t.config = &config
 	t.LoadConfigFile(os.Getenv("HOME")+"/.taho.json", config)
 	t.LoadConfigFile(".taho.json", config)
+
+	if t.config.WorkingDirectory != "" {
+		t.proxy.Chdir(t.config.WorkingDirectory)
+	}
 }
 
 func (t *Taho) LoadConfigFile(filename string, config TahoConfig) {
 	configFile, err := os.Open(filename)
-	if err == nil {
-		jsonParser := json.NewDecoder(configFile)
-		jsonParser.Decode(&config)
-		t.config = &config
+	if err != nil {
+		return
 	}
+	defer configFile.Close()
+	jsonParser := json.NewDecoder(configFile)
+	jsonParser.Decode(&config)
+	t.config = &config
 }
 
 func (t *Taho) Num() int {
@@ -384,21 +426,6 @@ func (t *Taho) ProcessFile(filename string, hasTF bool, specialNames map[string]
 	}
 
 	return hasTF
-}
-
-func (t *Taho) ProcessMainConfig() {
-	var mainConfig MainConfig
-
-	mainConfigFile := ".taho.main.json"
-	if t.proxy.FileExists(mainConfigFile) {
-		configFile := t.proxy.Open(mainConfigFile)
-		jsonParser := t.proxy.NewDecoder(configFile)
-		jsonParser.Decode(&mainConfig)
-
-		if mainConfig.WorkingDirectory != "" {
-			t.proxy.Chdir(mainConfig.WorkingDirectory)
-		}
-	}
 }
 
 func (t *Taho) ReadBlock(filename string) *hclwrite.Block {
@@ -695,7 +722,6 @@ func (t *Taho) RewriteTfVars(filename string) {
 }
 
 func (t *Taho) Run() {
-	t.ProcessMainConfig()
 	t.HandleArgs()
 	t.RunAsNeeded()
 	t.RunTerraformFmt()
@@ -739,8 +765,8 @@ func (t *Taho) RunAsNeeded() {
 
 // Run the program if needed.
 //
-// Some cases exist where we don't actually need to run the program. An example
-// is invoking the CLI to request the version using the `-v` option.
+// Some cases exist where we don't actually need to run the main program logic.
+// An example is invoking the CLI to request the version using the `-v` option.
 func (t *Taho) RunIfNeeded() {
 	if t.complete {
 		return
@@ -751,8 +777,7 @@ func (t *Taho) RunIfNeeded() {
 	t.tempDir = t.proxy.Sprintf("%s/.taho/%s/%d-%d", home, uuid, t.level, t.Num())
 	t.proxy.MkdirAll(t.tempDir)
 
-	// A number of filenames exist where we have special processing based on style
-	// rules.
+	// A number of filenames exist have special style rules.
 	specialNames := map[string]bool{
 		"backend.tf":   true,
 		"checks.tf":    true,
@@ -760,17 +785,13 @@ func (t *Taho) RunIfNeeded() {
 		"main.tf":      true,
 		"outputs.tf":   true,
 		"providers.tf": true,
+		"terraform.tf": true,
 		"variables.tf": true,
 	}
 
-	if t.config.Terraform {
-		specialNames["terraform.tf"] = true
-	}
-
-	hasTF := false
-	entries := t.proxy.ReadDir("./")
-
 	// Process files unless a "tofu" version of the filename also exists.
+	entries := t.proxy.ReadDir("./")
+	hasTF := false
 	for _, entry := range entries {
 		entryName := entry.Name()
 		if !t.TofuExists(entryName) {
@@ -787,11 +808,14 @@ func (t *Taho) RunIfNeeded() {
 			t.terraform = append(t.terraform, newBlock)
 		}
 
+		// We write these tf files if we have content for them
 		t.WriteTfFile(false, "backend.tf", t.backend)
 		t.WriteTfFile(false, "checks.tf", t.checks)
 		t.WriteTfFile(false, "import.tf", t.imports)
 		t.WriteTfFile(false, "outputs.tf", t.outputs)
 		t.WriteTfFile(false, "variables.tf", t.variables)
+
+		// We write out main.tf even if it is empty.
 		t.WriteTfFile(true, "main.tf", t.main)
 
 		if t.config.Provider {
@@ -1037,15 +1061,15 @@ func (t *Taho) SortAttributes(block *hclwrite.Block,
 	return block
 }
 
-func (t *Taho) ToLines(block *hclwrite.Block) []string {
-	lines, _, _ := t.ReadLines(t.WriteBlock(block), "")
-	return lines
-}
-
 func (t *Taho) TofuExists(filename string) bool {
 	re := t.proxy.MustCompile(`\.tf$`)
 	tofuName := re.ReplaceAllString(filename, "") + ".tofu"
 	return t.proxy.FileExists(tofuName)
+}
+
+func (t *Taho) ToLines(block *hclwrite.Block) []string {
+	lines, _, _ := t.ReadLines(t.WriteBlock(block), "")
+	return lines
 }
 
 func (t *Taho) WriteBlock(block *hclwrite.Block) string {

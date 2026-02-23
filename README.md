@@ -2,49 +2,40 @@
 
 A tool for Terraform, Tofu, and AWS.
 
-## Open Issues
-
-- Documentation is very weak
-- GoLang implementation is a mess
-- Script implmentatation is also a mess
-- Scripting only works for `_global`, `us-east-1` and `eu-west-2` AWS regions
-- We only support one `_global` environment (we need a scope feature so we can
-  support one per account)
-- We have other [problems](#problems) that need to be fixed
-
-## Overview
-
-The Taho CLI supports Site Reliability Engineers working with Terraform,
-OpenTofu, Terragrunt, and AWS.
-
-Our CLI provides a higher level wrapper around Terragrunt, a very powerful
-formatting subcommand for HCL code, and a managed Docker based environment with
-Terraform, OpenTofu, AWS, and related tools.
-
-Currently this tool is in early development. The tool is at the point where it
-is somewhat useful for Terraform and Terragrunt projects. Features related to
-OpenTofu do not yet work. Many features that should be part of the go code are
-implemented by a large and cahotic [shell script](./script).
-
-Still, even in this early stage the tool is useful. If others contribute to the
-project the tool will become more useful.
-
-The Taho tool provides subcommands to address the followning.
-
-- Automation and reporting for Terraform, and Terragrunt projects
-- AWS RunAs Integration with Generated Aliases
-- Formatting for Terraform and Terragrunt files
-- Integrated Linting
-- Shell enviornment for isolation
-
 ## About the Name
 
 Taho is a dessert made with tofu. Taho is also a city in Utah known for good ski
 resorts.
 
-In addtion, Taho is the name of this subcommand line tool. The founder of the
+In addtion, Taho is the name of this subcommand line tool. The author of the
 project simply picked the name because it goes well with OpenTofu and it is
 short.
+
+## Open Issues
+
+- Documentation is very weak
+- GoLang implementation is a mess
+- Script implmentatation is also a mess
+- The `fmt` command has [problems](#problems) that need to be fixed
+- Scripts may not be portable currently development is on `bash@5.2.37` and
+  `zsh@5.9`
+
+## Overview
+
+The Taho CLI supports Site Reliability Engineers working with AWS, Docker,
+Terraform, Terragrunt, Open Tofu, and Kubernetes, and related tools.
+
+Subcommands to address the followning.
+
+- Formatting for Terraform and Terragrunt files
+- Scripting for Terraform, and Terragrunt projects
+- Docker Based Shell enviornment
+
+Many features are currently implemented by a large [shell script](./script). If
+others contribute to the project the tool will become more useful.
+
+The tool is at the point where it is useful for the work it's author does on
+projects.
 
 ## Subcommands
 
@@ -52,7 +43,6 @@ Our CLI provides the following subcommands:
 
 |Subcommand Name     |Subcommand     |Description                                                                 |
 |--------------------|---------------|----------------------------------------------------------------------------|
-|[Apply]             |`apply`        |Applies infrastructure units                                                |
 |[AWS-RunAs]         |`aws-runas`    |AWS RunAs script output                                                     |
 |[Check]             |`check`        |Checks infrastructure units                                                 |
 |[Clean]             |`clean`        |Removes Terraform and Terragrunt cache files                                |
@@ -79,25 +69,18 @@ Our CLI provides the following subcommands:
 |[Version]           |`version`      |Shows the version of our tool                                               |
 |[URL]               |`url`          |Show the https URL for a github origin                                      |
 
-## Apply Subcommand
-
-The `apply` subcommand performs a `terragrunt apply` for all units selected from
-the a list of units defined in the project's `README`. Passing `-filter` with a
-regular expression allows you to limit the scope to only units matching the
-filter. The default filter is `.*`.  Passing `-reverse` results in reverse
-traversal for list.  Passing `-auto-approve` is required if you wish for the
-apply to proceed with automatic approval.
-
 ## AWS RunAs Subcommand
 
 The `aws-runas` subcommand outputs a script that can be used in conjunction with
-the [aws-runas][aws-runas] CLI. As a wrapper around [AWS Runas][aws-runas] the
-Taho subcommand simply invokes `unset AWS_...` on several enviornment variables
-prior to invoking `aws-runas` and afterwards it sets a few additional
-enviornment variables. For details, review the [Taho script code](./script).
+the [aws-runas-cli] CLI. The subcommand is a wrapper around the `aws-runas`
+command where we perform `unset AWS_...` on several enviornment variables prior
+to invoking `aws-runas` and afterwards it set a few additional enviornment
+variables.
 
-On MacOS, invoking this subcommand through aliases created by the `taho start`
-subcommand is the normal approach.
+The `aws-runas` subcommand takes one poisitonal parameter to identify the
+profile that should be used. The default behavior is to create a `1h` session
+unless the `TH_AWS_RUNAS_TIME` enviornment variable is set in which case it uses
+the value of that enviornment variable.
 
 ## Check Subcommand
 
@@ -239,11 +222,11 @@ The `lint` subcommand performs lint checks from the root of the repository.
 
 ## List Subcommand
 
-The `list` subcommand displays a list created based on the `README.md` file in
+The `list` subcommand displays a list created based on the `UNITS.md` file in
 the root of the repository.
 
-The list subcommand requires a parameter to define the environment that should be
-listed. Invoke the list subcommand as shown in the following example.
+The list subcommand requires a parameter to define the environment that should
+be listed. Invoke the list subcommand as shown in the following example.
 
 ```zsh
 taho list prd
@@ -354,7 +337,7 @@ The version subcommand shows the version of the Taho CLI. This subcommand also h
 When using this tool with a Terragrunt you also may wan to add `.taho.sh` as a
 file in the root of your infrastructure repostory. The `.taho.sh` script will
 execute after the Taho subcommand has set the `TAHO_ENVIRONMENT` environment
-variable based on user input and before reading your `README.md` file or
+variable based on user input and before reading your `UNITS.md` file or
 accessing AWS.
 
 The configuration approach is intentionally powerful and flexible because it is
@@ -377,12 +360,12 @@ case "$TAHO_ENVIRONMENT" in
 esac
 ```
 
-Within the root level `README.md` file for your repository add tables that list
-the Terragrunt units that you would like the Taho CLI to consider. This can be a
+With a root level `UNITS.md` file for your repository add a table listing the
+Terragrunt units that you would like the Taho CLI to consider. This can be a
 subset of the full environment list; the tables should take be formatted based
 on the following. The Taho CLI will parse the first column. Only the first
 column is considered. The `Notes` column in the example is just an example of a
-column that is ignored by the tool.
+column that is ignored by the tool. The `Notes` column is not required.
 
 ```markdown
 |`./infrastructure/the-nonprd`|Notes                         |
@@ -418,8 +401,8 @@ and the block are not handled correctly
 3. Using `//` or `/*` may result in a crash
 4. HCL errors will result in a crash
 
-[Apply]:              #apply-subcommand
 [AWS-RunAs]:          #aws-runas-subcommand
+[aws-runas-cli]:      https://github.com/mmmorris1975/aws-runas
 [Check]:              #check-subcommand
 [Clean]:              #clean-subcommand
 [Copy-Locks]:         #copy-locks-subcommand

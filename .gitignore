@@ -4,4 +4,5 @@
 .tmp
 .vscode
 /release
+taho-go
 terraform.tfstate

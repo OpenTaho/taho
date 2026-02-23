@@ -23,16 +23,10 @@ c0='\033[0m'    # No color
 c1='\033[0;32m' # Green
 c2='\033[0;31m' # Red
 
-#######################################
-# Run the aws-runas subcommand
-# Arguments:
-#   TBD
-# Returns
-#   0 if successfully, non-zero on error.
-#######################################
-aws_runas() {
+################################################################################
+_aws_runas() {
   local aws_runas_profile="$1"; shift
-  AWS_RUNAS_TIME="${AWS_RUNAS_TIME:-1h}"
+  TH_AWS_RUNAS_TIME="${TH_AWS_RUNAS_TIME:-1h}"
 
   rm -rf ~/.aws/.aws_saml_* > /dev/null 2>&1
   echo 'unset AWS_ACCESS_KEY_ID'
@@ -41,21 +35,23 @@ aws_runas() {
   echo 'unset AWS_SECRET_ACCESS_KEY'
   echo 'unset AWS_SECURITY_TOKEN'
   echo 'unset AWS_SESSION_TOKEN'
-  echo ". <(aws-runas -a '$AWS_RUNAS_TIME' $aws_runas_profile 2> /dev/null)"
+  echo ". <(aws-runas -a '$TH_AWS_RUNAS_TIME' $aws_runas_profile 2> /dev/null)"
   echo 'aws_id="$(aws sts get-caller-identity)"'
-  echo 'export AWS_SIMPLE_ROLENAME="$(echo "$aws_id" | jq -r .Arn 2>&1 | sed "s/.*assumed-role\///" | sed "s/@.*//")"'
+  echo 'export AWS_SIMPLE_ROLENAME="$('
+  echo '  echo "$aws_id" |'
+  echo '  jq -r .Arn 2>&1 |'
+  echo '  sed "s/.*assumed-role\///" |'
+  echo '  sed "s/@.*//"'
+  echo ')"'
   echo 'export AWS_ACCOUNT="$(echo "$aws_id" | jq -r .Account)"'
-  echo 'export AWS_ALIAS="$(aws iam list-account-aliases | jq -r '"'"'.AccountAliases[0]'"'"')"'
+  echo 'export AWS_ALIAS="$('
+  echo '  aws iam list-account-aliases |'
+  echo '  jq -r '"'"'.AccountAliases[0]'"'"''
+  echo ')"'
 }
 
-#######################################
-# Check for drift
-# Arguments:
-#   $@
-# Returns
-#   0 if successfully, non-zero on error.
-#######################################
-check() {
+################################################################################
+_check() {
   # Source AWS_AUTH if it exists
   AWS_AUTH="$(git rev-parse --show-toplevel)/.tmp/.aws/$AWS_ALIAS"
   if [ -e "$AWS_AUTH" ]; then
@@ -105,7 +101,8 @@ check() {
       fi
     fi
 
-    # Resource count bytes divided by 1024
+    # Count chars divided by 1024 to provide number that represents the the size
+    # of the state file
     s_k="$(( $(terragrunt show -json 2> /dev/null | wc -c) / 1024 ))"
 
     # If the plan has a result we consider it to be a case of drift.
@@ -121,35 +118,21 @@ check() {
   fi
 }
 
-#######################################
-# Clean the repository
-# Arguments:
-#   $1 - optional for '-unlock'
-# Returns
-#   0 if successfully, non-zero on error.
-#######################################
-clean() {
+################################################################################
+_clean() {
   (
     cd "$(git rev-parse --show-toplevel)" || exit 1
     rm -rf .tmp/.aws
     find . -name .terraform -type d -exec rm -rf {} \; &> /dev/null
     find . -name .terragrunt-cache -type d -exec rm -rf {} \; &> /dev/null
     if [[ "$1" == '-unlock' ]]; then
-      shift
       find . -name .terraform.lock.hcl -type f -delete &> /dev/null
     fi
   )
 }
 
-#######################################
-# Recursively clone a repo
-# Arguments:
-#   $1 - git url
-#   $2 - repos dir
-# Returns
-#   0 if successfully, non-zero on error.
-#######################################
-clone_repos() {
+################################################################################
+_clone_repos() {
   local source="$1"; shift
   local repos_dir="$1"; shift
   local name
@@ -179,7 +162,7 @@ clone_repos() {
           sed 's/.* uses: /git@github.com:/'
           sort -u
         ); do
-          ( clone_repos "$action_source" "$repos_dir" ) || true
+          ( _clone_repos "$action_source" "$repos_dir" ) || true
         done
       done
     fi
@@ -194,20 +177,14 @@ clone_repos() {
         sed 's/\/\/.*//' |
         sort -u
       ); do
-        clone_repos "$submodule_source" "$repos_dir"
+        _clone_repos "$submodule_source" "$repos_dir"
       done
     fi
   ) > /dev/null 2>&1
 }
 
-#######################################
-# Echo Reverse
-# Arguments:
-#   $1 - String with lines to reverse.
-# Returns
-#   0 if successfully, non-zero on error.
-#######################################
-echo_reverse() {
+################################################################################
+_echo_reverse() {
   local line result nl
   nl=$'\n'
   for line in $(echo "$1"); do
@@ -383,10 +360,16 @@ install_kubectl() {
   (
     mkdir -p /root/bin
     cd /root/bin || exit 1
-    curl -s -LO "https://dl.k8s.io/release/$version/bin/linux/amd64/kubectl"
+    local ar
+    ar=$(arch)
+    if [[ "$ar" == 'aarch64' ]]; then
+      ar='arm64'
+    fi
+    curl -s -LO "https://dl.k8s.io/release/$version/bin/linux/$ar/kubectl"
     chmod +x kubectl
   )
 }
+
 #######################################
 # Install Terraform
 #
@@ -399,7 +382,7 @@ install_kubectl() {
 #   0 if successfully, non-zero on error.
 #######################################
 install_terraform() {
-  local version="${1:-1.14.4}"; shift || true
+  local version="${1:-1.14.5}"; shift || true
   local install_to="${1:-/usr/local/bin}"; shift || true
 
   # Remove a leading "v" if it was supplied
@@ -444,7 +427,7 @@ install_terraform() {
 #   0 if successfully, non-zero on error.
 #######################################
 install_terragrunt() {
-  local version="${1:-0.99.0}"; shift || true
+  local version="${1:-0.99.4}"; shift || true
   local install_to="${1:-/usr/local/bin}"; shift || true
 
   # Remove a leading "v" if it was supplied
@@ -539,12 +522,14 @@ process_unit() {
       exit 1
     fi
 
-    local source
-    source="$(
-      grep -F 'source =' terragrunt.hcl |
+    local raw_source
+    raw_source="$(
+      grep -E 'source * =' terragrunt.hcl |
       sed 's/.*= "//' |
       sed 's/"//'
     )"
+
+    local source="$raw_source"
 
     local module_dir module_source
 
@@ -554,6 +539,8 @@ process_unit() {
         sed 's/.*\/\///' |
         sed 's/\?ref=.*//'
       )"
+    else
+      module_dir=''
     fi
 
     module_source="$(
@@ -571,6 +558,7 @@ process_unit() {
     local module
     module="$(
       echo "$source" |
+      sed 's/\?.*//' |
       sed 's/.*\///' |
       sed 's/\.git\?/?/'
     )"
@@ -590,30 +578,41 @@ process_unit() {
 
     local ref
     ref="$(
-      echo "$module" |
+      echo "$raw_source" |
       sed 's/.*\?ref=//' |
       sed 's/".*$//g'
     )"
 
-    local unit_dir
-    unit_dir="$(
+    local base_dir
+    base_dir="$(
       cd "$(git rev-parse --show-toplevel)" || exit 1
       cd ..
       pwd
-    )/$(
+    )"
+
+    local units_dir
+    units_dir="$base_dir/$(
       git remote get-url origin |
       sed 's/.*\///' |
       sed 's/\.git$//'
-    )-units/$TAHO_UNIT"
-    rm -rf "$unit_dir"
+    )-units"
+
+    mkdir -p "$units_dir"
+
+    local unit_dir
+    unit_dir="$units_dir/$TAHO_UNIT"
 
     local git_branch
     git_branch="$(git branch --show-current)"
 
     if ! err="$(
       (
-        git clone "$module_source" "$unit_dir"
+        rm -rf "$unit_dir"
+        mkdir -p "$unit_dir"
+        cd "$unit_dir"
+        git clone "$module_source" .
         cd "$unit_dir" || exit 1
+        git checkout -b "$git_branch" "origin/$ref" ||
         git checkout -b "$git_branch" "$ref"
       ) 2>&1 || exit 1
     )"; then
@@ -641,7 +640,7 @@ process_unit() {
     )"
 
     if [[ "$tf_version" != "$tf_version_actual" ]]; then
-      echo "TERRAFORM VERSION MISMATCH"
+      echo "TERRAFORM VERSION MISMATCH: '$module', '$ref', '$git_branch', '$tf_version', '$tf_version_actual'"
       exit 1
     fi
 
@@ -654,11 +653,8 @@ process_unit() {
     cmd1="$cmd"
     local s_k
     case "$cmd1" in
-      apply)
-        tfg_run 'apply' "$unit" "$@"
-        ;;
       check)
-        check "$@"
+        _check "$@"
         ;;
       copy-locks)
         cp "$unit_dir/.terraform.lock.hcl" . ||
@@ -801,7 +797,7 @@ tag_v() {
     fi
 
     local base_release
-    case $bump_type in
+    case "$bump_type" in
       pre-major)
         base_release="$(( major + 1 )).0.0"
         ;;
@@ -1281,7 +1277,7 @@ tfg_line() {
   fi
 
   # Clone the module
-  clone_repos "$module_source" "$repos_dir"
+  _clone_repos "$module_source" "$repos_dir"
 
   module_pad="$(printf "%-$(( 100 - ${#module} - ${#ref} - 1 ))s" ' ')"
   printf "$spec" \
@@ -1305,10 +1301,21 @@ tfg_line() {
   local submodule
   for submodule in $(
     cd "$tmp" 2> /dev/null || exit
-    git clone --depth 1 "git@github.com:$TH_ORG/$module" > /dev/null 2>&1
+    git clone "git@github.com:$TH_ORG/$module" > /dev/null 2>&1
     cd "$module" 2> /dev/null || exit
     git fetch origin "$ref" > /dev/null 2>&1
-    git reset --hard "$ref" > /dev/null 2>&1
+    (
+      git reset --hard "$ref" ||
+      git reset --hard "origin/$ref"
+    ) > /dev/null 2>&1
+
+    if [ ! -f main.tf ]; then
+      echo 'ERROR: main.tf not found'
+      echo "INFO: module=$module"
+      echo "INFO: ref=$ref"
+      exit 1
+    fi
+
     cat main.tf |
     grep -E '\?ref=v[0-9]*\.' |
     sed 's/"$//' |
@@ -1332,8 +1339,6 @@ tfg_line() {
     '' |
     head -n 1
   done
-
-  rm -rf "$tmp"
 
   printf '%s\n' "$TABLE_LINE"
 }
@@ -1457,17 +1462,17 @@ main() {
       e='echo'
       ;;
     aws-runas)
-      aws_runas "$@"
+      _aws_runas "$@"
       ;;
     clean)
-      clean "$@"
+      _clean "$@"
       exit 0
       ;;
     copy-locks)
       e='echo'
       ;;
     destroy|disable)
-      e='echo_reverse'
+      e='_echo_reverse'
       ;;
     fmt)
       taho-go "$@"
@@ -1501,7 +1506,7 @@ main() {
       fi
       ;;
     tf-lint)
-      clean
+      _clean
       tf_lint "$@"
       exit 0
       ;;
@@ -1514,7 +1519,7 @@ main() {
       exit 0
       ;;
     lint)
-      clean
+      _clean
       lint "$@"
       ;;
     save-aws-auth)
@@ -1715,13 +1720,14 @@ shell() {
     echo 'export PATH="$HOME/.tfenv/bin:$PATH"'
     echo 'export PATH="$HOME/.tgenv/bin:$PATH"'
     echo 'export PATH="$HOME/go/bin:$PATH"'
-    echo 'history -c'
+    echo 'yes | history -c'
     echo 'cat /root/.history >> /root/.history-x'
     if [ -z "$1" ]; then
       echo "zsh -c 'source /root/.zshrc; zsh'; cat /root/.history-x >> /root/.history"
     else
       echo "zsh -c 'source /root/.zshrc; $*'"
     fi
+    echo '. <(taho start)'
   ) > ".tmp/start-$taho_id" || exit 1
   chmod +x ".tmp/start-$taho_id"
 
@@ -1793,19 +1799,55 @@ existing_or() {
 start() {
   (
     cd "$(git rev-parse --show-toplevel)" || exit 1
-    for profile in $(grep -F '[profile ' < "$HOME/.aws/config" |
-      sed 's/.* //' |
-      sed 's/\]//'
-    ); do
-      echo "alias \"taho-aws-$profile\"=\". <(taho aws-runas $profile)\""
-    done
 
+    if [ -z "$TAHO_DOCKER" ]; then
+      for profile in $(
+        grep -F '[profile ' < "$HOME/.aws/config" |
+        sed 's/.* //' |
+        sed 's/\]//'
+      ); do
+        echo "alias \"taho-aws-$profile\"=\". <(taho aws-runas $profile)\""
+      done
+
+      echo "alias taho-code-rm='sudo rm -f /usr/local/bin/code'"
+
+      echo   "taho_precmd() {"
+      echo   "  echo -e -n \"\$(taho get-context)\""
+      echo   "}"
+      echo   "add-zsh-hook precmd taho_precmd"
+    fi
+
+    echo "alias taho-gap='git add -p'"
+    echo "alias taho-gca='git commit --amend'"
+    echo "alias taho-gcm='export TAHO_COMMIT_TYPE=feat; taho-git-commit'"
+    echo "alias taho-gdp='taho-git-dpush'"
+    echo "alias taho-gfix='export TAHO_COMMIT_TYPE=fix; taho-git-commit'"
     echo "alias taho-git-dpush='git push origin \":\$(git branch --show-current)\"; git push -u origin HEAD'"
-    echo "alias taho-cd='cd "'"$(git rev-parse --show-toplevel)"'"'"
+    echo "alias taho-gpf='git push -f'"
+    echo "alias taho-gph='git push -u origin HEAD'"
+    echo "alias taho-gpo='git push origin'"
+    echo "alias taho-gpom='git pull origin \"\$(whoami)/main\"; git fetch --tags'"
+    echo "alias taho-grm='git rebase --reset-author-date -i -- origin/main'"
+    echo "alias taho-gru='git remote update --prune'"
+    echo "alias taho-gst='taho-start; git status'"
+    echo "alias taho-gtd='git tag -d \$(git tag); git fetch --tags'"
+    echo "alias taho-gtop='cd \"\$(git rev-parse --show-toplevel)\"'"
+    echo "alias taho-gum='export TAHO_COMMIT_TYPE=update; taho-git-commit'"
+    echo "alias taho-tf='terraform'"
+    echo "alias taho-tfa='terraform apply'"
+    echo "alias taho-tfc='rm -rf .terraform'"
+    echo "alias taho-tfd='terraform destroy'"
+    echo "alias taho-tfi='terraform version; rm -rf .terraform; terraform init -upgrade; terraform validate; tflint; taho tfg-lock; taho fmt'"
+    echo "alias taho-tfl='tflint'"
+    echo "alias taho-tfm='terraform import'"
+    echo "alias taho-tfo='terraform output'"
+    echo "alias taho-tfp='terraform plan -lock=false'"
+    echo "alias taho-tfsm='terraform state mv'"
+    echo "alias taho-tfv='terraform validate'"
 
     echo   "taho-git-commit() {"
     echo   "  local issue"
-    echo   "  issue=\"\$(git branch --show-current | sed 's/@.*//' | sed \"s/-$(whoami)//\")\""
+    echo   "  issue=\"\$(git branch --show-current | sed 's/@.*//' | sed 's/.*\///' | sed \"s/-$(whoami)//\")\""
     printf "  git commit -m\"\${TAHO_COMMIT_TYPE:-feat}: \$("
     printf "    echo \"\$1\" |"
     printf "    sed 's/.*\///' |"
@@ -1813,13 +1855,6 @@ start() {
     printf "  )\\n\\n\$2\" --trailer \"\${TAHO_GIT_COMMIT_TRAILER_KEY:-Issue}: \$issue\" &&"
     printf "  git commit --amend\n"
     echo   "}"
-
-    if [[ "$(uname)" == 'Darwin' ]]; then
-      echo   "taho_precmd() {"
-      echo   "  echo -e -n \"\$(taho get-context)\""
-      echo   "}"
-      echo   "add-zsh-hook precmd taho_precmd"
-    fi
 
     if [ -e .tg-info.sh ]; then
       source .tg-info.sh
