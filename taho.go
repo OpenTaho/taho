@@ -739,8 +739,8 @@ func (t *Taho) RunAsNeeded() {
 
 // Run the program if needed.
 //
-// Some cases exist where we don't actually need to run the program. An example
-// is invoking the CLI to request the version using the `-v` option.
+// Some cases exist where we don't actually need to run the main program logic.
+// An example is invoking the CLI to request the version using the `-v` option.
 func (t *Taho) RunIfNeeded() {
 	if t.complete {
 		return
@@ -751,8 +751,7 @@ func (t *Taho) RunIfNeeded() {
 	t.tempDir = t.proxy.Sprintf("%s/.taho/%s/%d-%d", home, uuid, t.level, t.Num())
 	t.proxy.MkdirAll(t.tempDir)
 
-	// A number of filenames exist where we have special processing based on style
-	// rules.
+	// A number of filenames exist have special style rules.
 	specialNames := map[string]bool{
 		"backend.tf":   true,
 		"checks.tf":    true,
@@ -760,17 +759,13 @@ func (t *Taho) RunIfNeeded() {
 		"main.tf":      true,
 		"outputs.tf":   true,
 		"providers.tf": true,
+		"terraform.tf": true,
 		"variables.tf": true,
 	}
 
-	if t.config.Terraform {
-		specialNames["terraform.tf"] = true
-	}
-
-	hasTF := false
-	entries := t.proxy.ReadDir("./")
-
 	// Process files unless a "tofu" version of the filename also exists.
+	entries := t.proxy.ReadDir("./")
+	hasTF := false
 	for _, entry := range entries {
 		entryName := entry.Name()
 		if !t.TofuExists(entryName) {
@@ -787,11 +782,14 @@ func (t *Taho) RunIfNeeded() {
 			t.terraform = append(t.terraform, newBlock)
 		}
 
+		// We write these tf files if we have content for them
 		t.WriteTfFile(false, "backend.tf", t.backend)
 		t.WriteTfFile(false, "checks.tf", t.checks)
 		t.WriteTfFile(false, "import.tf", t.imports)
 		t.WriteTfFile(false, "outputs.tf", t.outputs)
 		t.WriteTfFile(false, "variables.tf", t.variables)
+
+		// We write out main.tf even if it is empty.
 		t.WriteTfFile(true, "main.tf", t.main)
 
 		if t.config.Provider {
