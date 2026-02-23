@@ -524,7 +524,7 @@ process_unit() {
 
     local raw_source
     raw_source="$(
-      grep -F 'source =' terragrunt.hcl |
+      grep -E 'source * =' terragrunt.hcl |
       sed 's/.*= "//' |
       sed 's/"//'
     )"
@@ -539,6 +539,8 @@ process_unit() {
         sed 's/.*\/\///' |
         sed 's/\?ref=.*//'
       )"
+    else
+      module_dir=''
     fi
 
     module_source="$(
@@ -581,24 +583,34 @@ process_unit() {
       sed 's/".*$//g'
     )"
 
-    local unit_dir
-    unit_dir="$(
+    local base_dir
+    base_dir="$(
       cd "$(git rev-parse --show-toplevel)" || exit 1
       cd ..
       pwd
-    )/$(
+    )"
+
+    local units_dir
+    units_dir="$base_dir/$(
       git remote get-url origin |
       sed 's/.*\///' |
       sed 's/\.git$//'
-    )-units/$TAHO_UNIT"
-    rm -rf "$unit_dir"
+    )-units"
+
+    mkdir -p "$units_dir"
+
+    local unit_dir
+    unit_dir="$units_dir/$TAHO_UNIT"
 
     local git_branch
     git_branch="$(git branch --show-current)"
 
     if ! err="$(
       (
-        git clone "$module_source" "$unit_dir"
+        rm -rf "$unit_dir"
+        mkdir -p "$unit_dir"
+        cd "$unit_dir"
+        git clone "$module_source" .
         cd "$unit_dir" || exit 1
         git checkout -b "$git_branch" "origin/$ref" ||
         git checkout -b "$git_branch" "$ref"
