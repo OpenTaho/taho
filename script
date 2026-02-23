@@ -50,14 +50,9 @@ _aws_runas() {
   echo ')"'
 }
 
-#######################################
+################################################################################
 # Check for drift
-# Arguments:
-#   $@
-# Returns
-#   0 if successfully, non-zero on error.
-#######################################
-check() {
+_check() {
   # Source AWS_AUTH if it exists
   AWS_AUTH="$(git rev-parse --show-toplevel)/.tmp/.aws/$AWS_ALIAS"
   if [ -e "$AWS_AUTH" ]; then
@@ -107,7 +102,8 @@ check() {
       fi
     fi
 
-    # Resource count bytes divided by 1024
+    # Count chars divided by 1024 to provide number that represents the the size
+    # of the state file
     s_k="$(( $(terragrunt show -json 2> /dev/null | wc -c) / 1024 ))"
 
     # If the plan has a result we consider it to be a case of drift.
@@ -667,7 +663,7 @@ process_unit() {
     local s_k
     case "$cmd1" in
       check)
-        check "$@"
+        _check "$@"
         ;;
       copy-locks)
         cp "$unit_dir/.terraform.lock.hcl" . ||
