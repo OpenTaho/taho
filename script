@@ -800,7 +800,7 @@ tag_v() {
     fi
 
     local base_release
-    case $bump_type in
+    case "$bump_type" in
       pre-major)
         base_release="$(( major + 1 )).0.0"
         ;;
@@ -1723,13 +1723,14 @@ shell() {
     echo 'export PATH="$HOME/.tfenv/bin:$PATH"'
     echo 'export PATH="$HOME/.tgenv/bin:$PATH"'
     echo 'export PATH="$HOME/go/bin:$PATH"'
-    echo 'history -c'
+    echo 'yes | history -c'
     echo 'cat /root/.history >> /root/.history-x'
     if [ -z "$1" ]; then
       echo "zsh -c 'source /root/.zshrc; zsh'; cat /root/.history-x >> /root/.history"
     else
       echo "zsh -c 'source /root/.zshrc; $*'"
     fi
+    echo '. <(taho start)'
   ) > ".tmp/start-$taho_id" || exit 1
   chmod +x ".tmp/start-$taho_id"
 

@@ -15,4 +15,4 @@ taho_precmd() {
 
 add-zsh-hook precmd taho_precmd
 
-alias taho-start='source <(taho start)'
+source <(taho start)
