@@ -119,21 +119,15 @@ _check() {
   fi
 }
 
-#######################################
+################################################################################
 # Clean the repository
-# Arguments:
-#   $1 - optional for '-unlock'
-# Returns
-#   0 if successfully, non-zero on error.
-#######################################
-clean() {
+_clean() {
   (
     cd "$(git rev-parse --show-toplevel)" || exit 1
     rm -rf .tmp/.aws
     find . -name .terraform -type d -exec rm -rf {} \; &> /dev/null
     find . -name .terragrunt-cache -type d -exec rm -rf {} \; &> /dev/null
     if [[ "$1" == '-unlock' ]]; then
-      shift
       find . -name .terraform.lock.hcl -type f -delete &> /dev/null
     fi
   )
@@ -1474,7 +1468,7 @@ main() {
       _aws_runas "$@"
       ;;
     clean)
-      clean "$@"
+      _clean "$@"
       exit 0
       ;;
     copy-locks)
@@ -1515,7 +1509,7 @@ main() {
       fi
       ;;
     tf-lint)
-      clean
+      _clean
       tf_lint "$@"
       exit 0
       ;;
@@ -1528,7 +1522,7 @@ main() {
       exit 0
       ;;
     lint)
-      clean
+      _clean
       lint "$@"
       ;;
     save-aws-auth)
