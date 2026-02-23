@@ -91,13 +91,15 @@ apply to proceed with automatic approval.
 ## AWS RunAs Subcommand
 
 The `aws-runas` subcommand outputs a script that can be used in conjunction with
-the [aws-runas][aws-runas] CLI. As a wrapper around [AWS Runas][aws-runas] the
-Taho subcommand simply invokes `unset AWS_...` on several enviornment variables
-prior to invoking `aws-runas` and afterwards it sets a few additional
-enviornment variables. For details, review the [Taho script code](./script).
+the [aws-runas-cli] CLI. The subcommand is a wrapper around the `aws-runas`
+command where we perform `unset AWS_...` on several enviornment variables prior
+to invoking `aws-runas` and afterwards it set a few additional enviornment
+variables.
 
-On MacOS, invoking this subcommand through aliases created by the `taho start`
-subcommand is the normal approach.
+The `aws-runas` subcommand takes one poisitonal parameter to identify the
+profile that should be used. The default behavior is to create a `1h` session
+unless the `TH_AWS_RUNAS_TIME` enviornment variable is set in which case it uses
+the value of that enviornment variable.
 
 ## Check Subcommand
 
@@ -420,6 +422,7 @@ and the block are not handled correctly
 
 [Apply]:              #apply-subcommand
 [AWS-RunAs]:          #aws-runas-subcommand
+[aws-runas-cli]:      https://github.com/mmmorris1975/aws-runas
 [Check]:              #check-subcommand
 [Clean]:              #clean-subcommand
 [Copy-Locks]:         #copy-locks-subcommand
