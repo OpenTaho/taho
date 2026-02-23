@@ -427,7 +427,7 @@ install_terraform() {
 #   0 if successfully, non-zero on error.
 #######################################
 install_terragrunt() {
-  local version="${1:-0.99.0}"; shift || true
+  local version="${1:-0.99.1}"; shift || true
   local install_to="${1:-/usr/local/bin}"; shift || true
 
   # Remove a leading "v" if it was supplied
