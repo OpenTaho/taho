@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclwrite"
@@ -64,12 +65,13 @@ func (t *Taho) GetAttributeKeys(attributes map[string]*hclwrite.Attribute) []str
 }
 
 func (t *Taho) GetTypeAndLabels(newBlock *hclwrite.Block) string {
-	typeAndLabels := newBlock.Type()
+	var typeAndLabels strings.Builder
+	typeAndLabels.WriteString(newBlock.Type())
 	labels := newBlock.Labels()
 	for n := range labels {
-		typeAndLabels += t.proxy.Sprintf(".%s", labels[n])
+		typeAndLabels.WriteString(t.proxy.Sprintf(".%s", labels[n]))
 	}
-	return typeAndLabels
+	return typeAndLabels.String()
 }
 
 func (t *Taho) HandleArgs() {
@@ -113,17 +115,6 @@ func (t *Taho) HandleHelpArg() bool {
 			"-r, --recursive\n" +
 			"-v, --version")
 	t.complete = true
-	return true
-}
-
-func (t *Taho) HandleTestArg() bool {
-	if !(t.proxy.HasArg("t", "test")) {
-		return false
-	}
-
-	fmt.Println("TEST")
-	fmt.Println(thcl.Hello("test"))
-
 	return true
 }
 
@@ -208,6 +199,17 @@ func (t *Taho) HandleRecursiveArg() bool {
 			t2.RunAsNeeded()
 		}
 	}
+
+	return true
+}
+
+func (t *Taho) HandleTestArg() bool {
+	if !(t.proxy.HasArg("t", "test")) {
+		return false
+	}
+
+	fmt.Println("TEST")
+	fmt.Println(thcl.Hello("test"))
 
 	return true
 }
