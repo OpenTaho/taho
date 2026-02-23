@@ -9,6 +9,7 @@ RUN apt-get update \
   dnsutils \
   git \
   golang \
+  graphviz \
   jq \
   man \
   markdownlint \
