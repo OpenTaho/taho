@@ -1814,15 +1814,24 @@ existing_or() {
 start() {
   (
     cd "$(git rev-parse --show-toplevel)" || exit 1
-    for profile in $(grep -F '[profile ' < "$HOME/.aws/config" |
-      sed 's/.* //' |
-      sed 's/\]//'
-    ); do
-      echo "alias \"taho-aws-$profile\"=\". <(taho aws-runas $profile)\""
-    done
 
-    echo "alias taho-cd='cd "'"$(git rev-parse --show-toplevel)"'"'"
-    echo "alias taho-code-rm='sudo rm -f /usr/local/bin/code'"
+    if [ -z "$TAHO_DOCKER" ]; then
+      for profile in $(
+        grep -F '[profile ' < "$HOME/.aws/config" |
+        sed 's/.* //' |
+        sed 's/\]//'
+      ); do
+        echo "alias \"taho-aws-$profile\"=\". <(taho aws-runas $profile)\""
+      done
+
+      echo "alias taho-code-rm='sudo rm -f /usr/local/bin/code'"
+
+      echo   "taho_precmd() {"
+      echo   "  echo -e -n \"\$(taho get-context)\""
+      echo   "}"
+      echo   "add-zsh-hook precmd taho_precmd"
+    fi
+
     echo "alias taho-gap='git add -p'"
     echo "alias taho-gca='git commit --amend'"
     echo "alias taho-gcm='export TAHO_COMMIT_TYPE=feat; taho-git-commit'"
@@ -1860,13 +1869,6 @@ start() {
     printf "  )\\n\\n\$2\" --trailer \"\${TAHO_GIT_COMMIT_TRAILER_KEY:-Issue}: \$issue\" &&"
     printf "  git commit --amend\n"
     echo   "}"
-
-    if [[ "$(uname)" == 'Darwin' ]]; then
-      echo   "taho_precmd() {"
-      echo   "  echo -e -n \"\$(taho get-context)\""
-      echo   "}"
-      echo   "add-zsh-hook precmd taho_precmd"
-    fi
 
     if [ -e .tg-info.sh ]; then
       source .tg-info.sh
