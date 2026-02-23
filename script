@@ -1818,7 +1818,7 @@ start() {
 
     echo   "taho-git-commit() {"
     echo   "  local issue"
-    echo   "  issue=\"\$(git branch --show-current | sed 's/@.*//' | sed \"s/-$(whoami)//\")\""
+    echo   "  issue=\"\$(git branch --show-current | sed 's/@.*//' | sed 's/.*\///' | sed \"s/-$(whoami)//\")\""
     printf "  git commit -m\"\${TAHO_COMMIT_TYPE:-feat}: \$("
     printf "    echo \"\$1\" |"
     printf "    sed 's/.*\///' |"
