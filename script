@@ -1824,6 +1824,7 @@ start() {
     echo "alias taho-gca='git commit --amend'"
     echo "alias taho-gcm='export TAHO_COMMIT_TYPE=feat; taho-git-commit'"
     echo "alias taho-gdp='taho-git-dpush'"
+    echo "alias taho-gfix='export TAHO_COMMIT_TYPE=fix; taho-git-commit'"
     echo "alias taho-git-dpush='git push origin \":\$(git branch --show-current)\"; git push -u origin HEAD'"
     echo "alias taho-gpf='git push -f'"
     echo "alias taho-gph='git push -u origin HEAD'"
