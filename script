@@ -51,7 +51,6 @@ _aws_runas() {
 }
 
 ################################################################################
-# Check for drift
 _check() {
   # Source AWS_AUTH if it exists
   AWS_AUTH="$(git rev-parse --show-toplevel)/.tmp/.aws/$AWS_ALIAS"
@@ -120,7 +119,6 @@ _check() {
 }
 
 ################################################################################
-# Clean the repository
 _clean() {
   (
     cd "$(git rev-parse --show-toplevel)" || exit 1
@@ -133,15 +131,8 @@ _clean() {
   )
 }
 
-#######################################
-# Recursively clone a repo
-# Arguments:
-#   $1 - git url
-#   $2 - repos dir
-# Returns
-#   0 if successfully, non-zero on error.
-#######################################
-clone_repos() {
+################################################################################
+_clone_repos() {
   local source="$1"; shift
   local repos_dir="$1"; shift
   local name
@@ -171,7 +162,7 @@ clone_repos() {
           sed 's/.* uses: /git@github.com:/'
           sort -u
         ); do
-          ( clone_repos "$action_source" "$repos_dir" ) || true
+          ( _clone_repos "$action_source" "$repos_dir" ) || true
         done
       done
     fi
@@ -186,20 +177,14 @@ clone_repos() {
         sed 's/\/\/.*//' |
         sort -u
       ); do
-        clone_repos "$submodule_source" "$repos_dir"
+        _clone_repos "$submodule_source" "$repos_dir"
       done
     fi
   ) > /dev/null 2>&1
 }
 
-#######################################
-# Echo Reverse
-# Arguments:
-#   $1 - String with lines to reverse.
-# Returns
-#   0 if successfully, non-zero on error.
-#######################################
-echo_reverse() {
+################################################################################
+_echo_reverse() {
   local line result nl
   nl=$'\n'
   for line in $(echo "$1"); do
@@ -1280,7 +1265,7 @@ tfg_line() {
   fi
 
   # Clone the module
-  clone_repos "$module_source" "$repos_dir"
+  _clone_repos "$module_source" "$repos_dir"
 
   module_pad="$(printf "%-$(( 100 - ${#module} - ${#ref} - 1 ))s" ' ')"
   printf "$spec" \
@@ -1475,7 +1460,7 @@ main() {
       e='echo'
       ;;
     destroy|disable)
-      e='echo_reverse'
+      e='_echo_reverse'
       ;;
     fmt)
       taho-go "$@"
