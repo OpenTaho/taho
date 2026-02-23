@@ -12,10 +12,6 @@ import (
 
 const version = "main"
 
-type MainConfig struct {
-	WorkingDirectory string `json:"workingDirectory"`
-}
-
 // Structure for a Taho instance.
 type Taho struct {
 	backend   []*hclwrite.Block
@@ -42,6 +38,13 @@ type TahoConfig struct {
 	Init      bool     `json:"init"`
 	Provider  bool     `json:"provider"`
 	Terraform bool     `json:"terraform"`
+
+	// In some situations, it is useful to execute Taho in a given directory but
+	// actually run as if Taho is executing from within another directory.
+	//
+	// We achieve this behavior by setting the "workingDirectory" key for the JSON
+	// content in the .taho.json file.
+	WorkingDirectory string `json:"workingDirectory"`
 }
 
 func (t *Taho) AdjustBlockTypeForSorting(typeName string) string {
@@ -257,6 +260,10 @@ func (t *Taho) LoadConfig() {
 	t.config = &config
 	t.LoadConfigFile(os.Getenv("HOME")+"/.taho.json", config)
 	t.LoadConfigFile(".taho.json", config)
+
+	if t.config.WorkingDirectory != "" {
+		t.proxy.Chdir(t.config.WorkingDirectory)
+	}
 }
 
 func (t *Taho) LoadConfigFile(filename string, config TahoConfig) {
@@ -417,21 +424,6 @@ func (t *Taho) ProcessFile(filename string, hasTF bool, specialNames map[string]
 	}
 
 	return hasTF
-}
-
-func (t *Taho) ProcessMainConfig() {
-	var mainConfig MainConfig
-
-	mainConfigFile := ".taho.main.json"
-	if t.proxy.FileExists(mainConfigFile) {
-		configFile := t.proxy.Open(mainConfigFile)
-		jsonParser := t.proxy.NewDecoder(configFile)
-		jsonParser.Decode(&mainConfig)
-
-		if mainConfig.WorkingDirectory != "" {
-			t.proxy.Chdir(mainConfig.WorkingDirectory)
-		}
-	}
 }
 
 func (t *Taho) ReadBlock(filename string) *hclwrite.Block {
@@ -728,7 +720,6 @@ func (t *Taho) RewriteTfVars(filename string) {
 }
 
 func (t *Taho) Run() {
-	t.ProcessMainConfig()
 	t.HandleArgs()
 	t.RunAsNeeded()
 	t.RunTerraformFmt()
