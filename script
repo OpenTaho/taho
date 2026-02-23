@@ -383,10 +383,16 @@ install_kubectl() {
   (
     mkdir -p /root/bin
     cd /root/bin || exit 1
-    curl -s -LO "https://dl.k8s.io/release/$version/bin/linux/amd64/kubectl"
+    local ar
+    ar=$(arch)
+    if [[ "$ar" == 'aarch64' ]]; then
+      ar='arm64'
+    fi
+    curl -s -LO "https://dl.k8s.io/release/$version/bin/linux/$ar/kubectl"
     chmod +x kubectl
   )
 }
+
 #######################################
 # Install Terraform
 #
