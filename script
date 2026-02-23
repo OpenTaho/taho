@@ -666,9 +666,6 @@ process_unit() {
     cmd1="$cmd"
     local s_k
     case "$cmd1" in
-      apply)
-        tfg_run 'apply' "$unit" "$@"
-        ;;
       check)
         check "$@"
         ;;
