@@ -1829,7 +1829,7 @@ start() {
     echo "alias taho-gpf='git push -f'"
     echo "alias taho-gph='git push -u origin HEAD'"
     echo "alias taho-gpo='git push origin'"
-    echo "alias taho-gpom='git pull; git pull origin main'"
+    echo "alias taho-gpom='git pull origin \"\$(whoami)/main\"; git fetch --tags'"
     echo "alias taho-grm='git rebase --reset-author-date -i -- origin/main'"
     echo "alias taho-gru='git remote update --prune'"
     echo "alias taho-gst='taho-start; git status'"
