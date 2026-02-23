@@ -1,6 +1,6 @@
 module github.com/OpenTaho/taho-go
 
-go 1.23.3
+go 1.26.0
 
 require (
 	github.com/hashicorp/hcl/v2 v2.23.0

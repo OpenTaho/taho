@@ -8,7 +8,6 @@ RUN apt-get update \
   curl \
   dnsutils \
   git \
-  golang \
   graphviz \
   jq \
   man \
@@ -27,7 +26,15 @@ RUN sh -c "$( \
 
 RUN apt-get install -y sudo
 
-RUN go install github.com/google/yamlfmt/cmd/yamlfmt@latest
+
+RUN mkdir /root/Downloads \
+  && cd /root/Downloads \
+  && arch="$(arch | sed 's/aarch64/arm64/')" \
+  && url="https://go.dev/dl/go1.26.0.linux-$arch.tar.gz" \
+  && curl -sL "$url" -o go.tar.gz \
+  && tar -C /usr/local -xzf go.tar.gz \
+  && PATH="$PATH:/usr/local/go/bin" \
+  && go install github.com/google/yamlfmt/cmd/yamlfmt@latest
 
 RUN URL='https://api.github.com/repos/aquasecurity/tfsec/releases/latest' \
   && URL="$(curl -s "$URL" | grep -o -E -m 1 "https://.+?tfsec-linux-amd64")" \
