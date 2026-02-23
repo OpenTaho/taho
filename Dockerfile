@@ -34,7 +34,8 @@ RUN URL='https://api.github.com/repos/aquasecurity/tfsec/releases/latest' \
 
 RUN URL="https://awscli.amazonaws.com/awscli-exe-linux-$(arch).zip" \
   && curl -s "$URL" -o awscliv2.zip \
-  && unzip awscliv2.zip && ./aws/install \
+  && unzip -q awscliv2.zip \
+  && ./aws/install \
   && rm -rf awscliv2.zip \
   && echo 'complete -C /usr/local/bin/aws_completer aws' >> /root/.zshrc
 
