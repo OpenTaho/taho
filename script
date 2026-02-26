@@ -1418,14 +1418,22 @@ main() {
 
     # Install to a given location if requested
     if (
-      local install_to="${1:-/usr/local/bin}"
-      rm -rf "$install_to/taho"
-      ln -s "$PWD/script" "$install_to/taho"
-      if which go > /dev/null; then
-        go install
-      else
-        echo 'GoLang not found; some features will be unavailable'
-      fi
+      (
+        local install_to="${1:-/usr/local/bin}"
+        rm -rf "$install_to/taho"
+        ln -s "$PWD/script" "$install_to/taho"
+        mkdir -p .tmp
+        cd .tmp || exit 1
+        git clone https://github.com/OpenTaho/taho-go
+        cd taho-go || exit 1
+        if which go > /dev/null; then
+          go install
+        else
+          echo 'GoLang not found; some features will be unavailable'
+        fi
+      )
+      rm -rf .tmp/taho-go
+
     ); then
       echo 'Installed taho'
     else

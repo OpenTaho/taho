@@ -4,7 +4,6 @@
 
 main() {
   rm -f "$HOME/go/bin/taho"
-  go install .
 
   if [ -d tests ]; then
     cd tests || exit 1
