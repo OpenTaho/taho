@@ -26,7 +26,6 @@ RUN sh -c "$( \
 
 RUN apt-get install -y sudo
 
-
 RUN mkdir /root/Downloads \
   && cd /root/Downloads \
   && arch="$(arch | sed 's/aarch64/arm64/')" \
@@ -59,6 +58,7 @@ COPY .git /root/taho/.git
 
 RUN cd /root/taho \
   && git reset --hard \
+  && export PATH="/usr/local/go/bin:$PATH" \
   && ./script install \
   && taho install-k \
   && taho install-terraform \
