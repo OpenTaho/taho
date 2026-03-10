@@ -1837,7 +1837,7 @@ start() {
     echo "alias taho-gpom='git pull origin \"\$(whoami)/main\"; git fetch --tags'"
     echo "alias taho-grm='git rebase --reset-author-date -i -- origin/main'"
     echo "alias taho-gru='git remote update --prune'"
-    echo "alias taho-gst='taho-start; git status'"
+    echo "alias taho-gst='git status'"
     echo "alias taho-gtd='git tag -d \$(git tag); git fetch --tags'"
     echo "alias taho-gtop='cd \"\$(git rev-parse --show-toplevel)\"'"
     echo "alias taho-gum='export TAHO_COMMIT_TYPE=update; taho-git-commit'"

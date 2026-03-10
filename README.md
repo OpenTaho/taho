@@ -286,10 +286,9 @@ On MacOS, invoke the `start` subcommand as follows:
 source <(taho start)
 ```
 
-We recommend adding `alias taho-start='source <(taho start)'` to your `.zshrc`
-so it is convenient to issue the subcommand each time you start working in a
-repository. The `start` subcommand can potentially incorporate content from your
-repositories `.taho.sh` file.
+We recommend adding something like `alias ts='source <(taho start)'` or
+`alias taho-start='source <(taho start)'` to your `.zshrc` so it is convenient
+to issue the subcommand each time you start working in a repository.
 
 ## Tag Version Subcommand
 
