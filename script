@@ -399,15 +399,15 @@ install_terraform() {
       mkdir -p "$tmp"
       (
         cd "$tmp" || exit 1
+        local url="https://releases.hashicorp.com/terraform/$version"
         if [[ "$(uname)" == 'Darwin' ]]; then
-          curl -s -L -o terraform.zip "https://releases.hashicorp.com/terraform/$version/terraform_${version}_darwin_$(arch).zip"
-          unzip terraform.zip
-          sudo mv terraform "$install_to"
+          url+="/terraform_${version}_darwin_$(arch).zip"
         else
-          curl -s -L -o terraform.zip "https://releases.hashicorp.com/terraform/$version/terraform_${version}_linux_amd64.zip"
-          unzip terraform.zip
-          mv terraform "$install_to"
+          url+="/terraform_${version}_linux_$(arch | sed 's/^aarch64/arm64/').zip"
         fi
+        curl -s -L -o terraform.zip "$url"
+        unzip terraform.zip
+        sudo mv terraform "$install_to"
       ) > /dev/null 2>&1 || exit 1
       rm -rf "$tmp"
     fi
